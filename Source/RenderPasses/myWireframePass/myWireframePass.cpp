@@ -84,9 +84,11 @@ void myWireframePass::execute(RenderContext* pRenderContext, const RenderData& r
         //mpVars->setVariable("PerFrameCB.gColor", float4(0, 1, 0, 1));
 
         //YIN: the following method works too:
-        auto perFrameCB = mpVars->getParameterBlock("PerFrameCB");
+        auto perFrameCB = mpVars->getParameterBlock("PerFrameCB");      // CB: Constant Buffers;     SR:Shader Resources;
         perFrameCB->setVariable("gColor", float4(0, 1, 0, 1));
-        
+
+
+
         // render a scene using the shader
         mpScene->rasterize(pRenderContext, mpGraphicsState.get(), mpVars.get(), mpRasterState, mpRasterState);
     }

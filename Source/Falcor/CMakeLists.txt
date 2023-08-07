@@ -562,6 +562,8 @@ target_sources(Falcor PRIVATE
     Utils/Algorithm/PrefixSum.cs.slang
     Utils/Algorithm/PrefixSum.h
     Utils/Algorithm/UnionFind.h
+    Utils/Algorithm/ComputeParallelReduction.h
+    Utils/Algorithm/ComputeParallelReduction.cpp
 
     Utils/Color/ColorHelpers.slang
     Utils/Color/ColorMap.slang
