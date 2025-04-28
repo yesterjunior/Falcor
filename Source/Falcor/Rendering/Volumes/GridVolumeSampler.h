@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -69,7 +69,7 @@ namespace Falcor
             \param[in] pScene The scene.
             \param[in] options Configuration options.
         */
-        GridVolumeSampler(RenderContext* pRenderContext, ref<Scene> pScene, const Options& options = Options());
+        GridVolumeSampler(RenderContext* pRenderContext, ref<IScene> pScene, const Options& options = Options());
         virtual ~GridVolumeSampler() = default;
 
         /** Get a list of shader defines for using the grid volume sampler.
@@ -80,7 +80,7 @@ namespace Falcor
         /** Bind the grid volume sampler to a given shader variable.
             \param[in] var Shader variable.
         */
-        void setShaderData(const ShaderVar& var) const;
+        void bindShaderData(const ShaderVar& var) const;
 
         /** Render the GUI.
             \return True if options were changed, false otherwise.
@@ -91,8 +91,10 @@ namespace Falcor
         */
         const Options& getOptions() const { return mOptions; }
 
+        void setOptions(const Options& options) { mOptions = options; }
+
     protected:
-        ref<Scene>              mpScene;            ///< Scene.
+        ref<IScene>             mpScene;            ///< Scene.
 
         Options                 mOptions;
     };

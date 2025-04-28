@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -77,6 +77,31 @@ ref<RenderGraph> RenderGraph::createFromFile(ref<Device> pDevice, const std::fil
     return pGraph;
 }
 
+ref<RenderGraph> RenderGraph::createFromString(ref<Device> pDevice, const std::string_view script)
+{
+    using namespace pybind11::literals;
+
+    ref<RenderGraph> pGraph;
+
+    // Setup a temporary scripting context that defines a local variable 'm' that
+    // has a 'addGraph' function exposed. This mimmicks the old Mogwai Python API
+    // allowing to load python based render graph scripts.
+    auto addGraph = pybind11::cpp_function([&pGraph](ref<RenderGraph> graph) { pGraph = graph; });
+
+    auto SimpleNamespace = pybind11::module_::import("types").attr("SimpleNamespace");
+    pybind11::object m = SimpleNamespace("addGraph"_a = addGraph);
+
+    Scripting::Context ctx;
+    ctx.setObject("m", m);
+
+    ref<Device> pPrevDevice = getActivePythonRenderGraphDevice();
+    setActivePythonRenderGraphDevice(pDevice);
+    Scripting::runScript(script, ctx);
+    setActivePythonRenderGraphDevice(pPrevDevice);
+
+    return pGraph;
+}
+
 uint32_t RenderGraph::getPassIndex(const std::string& name) const
 {
     auto it = mNameToIndex.find(name);
@@ -108,8 +133,8 @@ ref<RenderPass> RenderGraph::createPass(const std::string& passName, const std::
 
 uint32_t RenderGraph::addPass(const ref<RenderPass>& pPass, const std::string& passName)
 {
-    checkArgument(pPass != nullptr, "Added pass must not be null.");
-    checkArgument(getPassIndex(passName) == kInvalidIndex, "Pass name '{}' already exists.", passName);
+    FALCOR_CHECK(pPass != nullptr, "Added pass must not be null.");
+    FALCOR_CHECK(getPassIndex(passName) == kInvalidIndex, "Pass name '{}' already exists.", passName);
 
     uint32_t passIndex = mpGraph->addNode();
     mNameToIndex[passName] = passIndex;
@@ -127,7 +152,7 @@ uint32_t RenderGraph::addPass(const ref<RenderPass>& pPass, const std::string& p
 void RenderGraph::removePass(const std::string& name)
 {
     uint32_t index = getPassIndex(name);
-    checkArgument(index != kInvalidIndex, "Can't remove render pass '{}'. Pass doesn't exist.", name);
+    FALCOR_CHECK(index != kInvalidIndex, "Can't remove render pass '{}'. Pass doesn't exist.", name);
 
     // Unmark graph outputs that belong to this pass.
     // Because the way std::vector works, we can't call unmarkOutput() immediately, so we store the outputs in a vector
@@ -155,7 +180,7 @@ void RenderGraph::updatePass(const std::string& passName, const Properties& prop
     uint32_t index = getPassIndex(passName);
     const auto pPassIt = mNodeData.find(index);
 
-    checkArgument(pPassIt != mNodeData.end(), "Can't update render pass '{}'. Pass doesn't exist.", passName);
+    FALCOR_CHECK(pPassIt != mNodeData.end(), "Can't update render pass '{}'. Pass doesn't exist.", passName);
 
     // Recreate pass without changing graph using new dictionary
     auto pOldPass = pPassIt->second.pPass;
@@ -174,7 +199,7 @@ const ref<RenderPass>& RenderGraph::getPass(const std::string& name) const
 {
     uint32_t index = getPassIndex(name);
 
-    checkArgument(index != kInvalidIndex, "Can't find render pass '{}'.", name);
+    FALCOR_CHECK(index != kInvalidIndex, "Can't find render pass '{}'.", name);
 
     return mNodeData.at(index).pPass;
 }
@@ -224,15 +249,14 @@ RenderPass* RenderGraph::getRenderPassAndNamePair(
     nameAndField = parseFieldName(fullname);
 
     RenderPass* pPass = getPass(nameAndField.first).get();
-    if (pPass == nullptr)
-        throw ArgumentError("Can't find render pass '{}'.", nameAndField.first);
+    FALCOR_CHECK(pPass, "Can't find render pass '{}'.", nameAndField.first);
 
     RenderPass::CompileData compileData;
     compileData.defaultTexDims = mCompilerDeps.defaultResourceProps.dims;
     compileData.defaultTexFormat = mCompilerDeps.defaultResourceProps.format;
 
     if (nameAndField.second.size() && checkRenderPassIoExist(pPass, nameAndField.second, input, compileData) == false)
-        throw ArgumentError("Can't find field named '{}' in render pass '{}'.", nameAndField.second, nameAndField.first);
+        FALCOR_THROW("Can't find field named '{}' in render pass '{}'.", nameAndField.second, nameAndField.first);
 
     return pPass;
 }
@@ -256,10 +280,11 @@ uint32_t RenderGraph::addEdge(const std::string& src, const std::string& dst)
     newEdge.dstField = dstPair.second;
 
     if (checkMatchingEdgeTypes(newEdge.srcField, newEdge.dstField) == false)
-        throw ArgumentError(
+        FALCOR_THROW(
             "Can't add from '{}' to '{}'. One of the nodes is a resource while the other is a pass. Can't tell if you want a "
             "data-dependency or an execution-dependency",
-            src, dst
+            src,
+            dst
         );
 
     uint32_t srcIndex = mNameToIndex[srcPair.first];
@@ -277,7 +302,7 @@ uint32_t RenderGraph::addEdge(const std::string& src, const std::string& dst)
 
             if (edgeData.dstField == newEdge.dstField)
             {
-                throw ArgumentError(
+                FALCOR_THROW(
                     "Edge destination '{}' is already initialized. Please remove the existing connection before trying to add a new edge.",
                     dst
                 );
@@ -287,9 +312,7 @@ uint32_t RenderGraph::addEdge(const std::string& src, const std::string& dst)
 
     // Make sure that this doesn't create a cycle
     if (DirectedGraphPathDetector::hasPath(*mpGraph, dstIndex, srcIndex))
-        throw ArgumentError(
-            "Can't add the edge from '{}' to '{}'. The edge will create a cycle in the graph which is not allowed.", src, dst
-        );
+        FALCOR_THROW("Can't add the edge from '{}' to '{}'. The edge will create a cycle in the graph which is not allowed.", src, dst);
 
     uint32_t e = mpGraph->addEdge(srcIndex, dstIndex);
     mEdgeData[e] = newEdge;
@@ -323,7 +346,7 @@ void RenderGraph::removeEdge(const std::string& src, const std::string& dst)
 
 void RenderGraph::removeEdge(uint32_t edgeID)
 {
-    checkArgument(mEdgeData.find(edgeID) != mEdgeData.end(), "Can't remove edge with index {}. The edge doesn't exist.", edgeID);
+    FALCOR_CHECK(mEdgeData.find(edgeID) != mEdgeData.end(), "Can't remove edge with index {}. The edge doesn't exist.", edgeID);
 
     mEdgeData.erase(edgeID);
     mpGraph->removeEdge(edgeID);
@@ -421,7 +444,7 @@ void RenderGraph::execute(RenderContext* pRenderContext)
 {
     std::string log;
     if (!compile(pRenderContext, log))
-        throw RuntimeError("Failed to compile render graph:\n{}", log);
+        FALCOR_THROW("Failed to compile render graph:\n{}", log);
 
     FALCOR_ASSERT(mpExe);
     RenderGraphExe::Context c{
@@ -513,7 +536,7 @@ void RenderGraph::setInput(const std::string& name, const ref<Resource>& pResour
     {
         if (mCompilerDeps.externalResources.find(name) == mCompilerDeps.externalResources.end())
         {
-            throw ArgumentError("Trying to remove an external resource named '{}' but the resource wasn't registered before.", name);
+            FALCOR_THROW("Trying to remove an external resource named '{}' but the resource wasn't registered before.", name);
         }
         mCompilerDeps.externalResources.erase(name);
     }
@@ -524,7 +547,7 @@ void RenderGraph::setInput(const std::string& name, const ref<Resource>& pResour
 
 void RenderGraph::markOutput(const std::string& name, TextureChannelFlags mask)
 {
-    checkArgument(mask != TextureChannelFlags::None, "Mask must be non-empty");
+    FALCOR_CHECK(mask != TextureChannelFlags::None, "Mask must be non-empty");
 
     // Recursive call to handle '*' wildcard.
     if (name == "*")
@@ -588,7 +611,7 @@ bool RenderGraph::isGraphOutput(const std::string& name) const
 ref<Resource> RenderGraph::getOutput(const std::string& name)
 {
     if (mRecompile)
-        throw RuntimeError("Can't fetch the output '{}'. The graph wasn't successfuly compiled yet.", name);
+        FALCOR_THROW("Can't fetch the output '{}'. The graph wasn't successfuly compiled yet.", name);
 
     str_pair strPair;
     getRenderPassAndNamePair(false, name, strPair);
@@ -597,7 +620,7 @@ ref<Resource> RenderGraph::getOutput(const std::string& name)
     GraphOut thisOutput = {passIndex, strPair.second};
     bool isOutput = isGraphOutput(thisOutput);
     if (!isOutput)
-        throw RuntimeError("Can't fetch the output '{}'. The resource is wasn't marked as an output.", name);
+        FALCOR_THROW("Can't fetch the output '{}'. The resource is wasn't marked as an output.", name);
 
     return mpExe->getResource(name);
 }
@@ -626,7 +649,7 @@ void RenderGraph::onResize(const Fbo* pTargetFbo)
     // Store the back-buffer values
     const Texture* pColor = pTargetFbo ? pTargetFbo->getColorTexture(0).get() : nullptr;
     if (pColor == nullptr)
-        throw RuntimeError("Can't resize render graph without a frame buffer.");
+        FALCOR_THROW("Can't resize render graph without a frame buffer.");
 
     // Store the values
     mCompilerDeps.defaultResourceProps.format = pColor->getFormat();
@@ -657,7 +680,13 @@ void RenderGraph::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget)
         mpExe->renderUI(pRenderContext, widget);
 }
 
-void RenderGraph::onSceneUpdates(RenderContext* pRenderContext, Scene::UpdateFlags sceneUpdates)
+void RenderGraph::renderOverlayUI(RenderContext* pRenderContext)
+{
+    if (mpExe)
+        mpExe->renderOverlayUI(pRenderContext);
+}
+
+void RenderGraph::onSceneUpdates(RenderContext* pRenderContext, IScene::UpdateFlags sceneUpdates)
 {
     // Notify all passes in graph about scene updates.
     // Note we don't rely on `mpExe` here because it is not created until the graph is compiled in `execute()`.
@@ -710,12 +739,16 @@ FALCOR_SCRIPT_BINDING(RenderGraph)
         "create_pass",
         [](RenderGraph& graph, const std::string& pass_name, const std::string& pass_type, pybind11::dict dict = {})
         { return graph.createPass(pass_name, pass_type, Properties(dict)); },
-        "pass_name"_a, "pass_type"_a, "dict"_a = pybind11::dict()
+        "pass_name"_a,
+        "pass_type"_a,
+        "dict"_a = pybind11::dict()
     );
     renderGraph.def("remove_pass", &RenderGraph::removePass, "name"_a);
     renderGraph.def(
-        "update_pass", [](RenderGraph& graph, const std::string& name, pybind11::dict dict) { graph.updatePass(name, Properties(dict)); },
-        "name"_a, "dict"_a
+        "update_pass",
+        [](RenderGraph& graph, const std::string& name, pybind11::dict dict) { graph.updatePass(name, Properties(dict)); },
+        "name"_a,
+        "dict"_a
     );
     renderGraph.def("add_edge", &RenderGraph::addEdge, "src"_a, "dst"_a);
     renderGraph.def(
@@ -724,6 +757,7 @@ FALCOR_SCRIPT_BINDING(RenderGraph)
     renderGraph.def("mark_output", &RenderGraph::markOutput, "name"_a, "mask"_a = TextureChannelFlags::RGB);
     renderGraph.def("unmark_output", &RenderGraph::unmarkOutput, "name"_a);
     renderGraph.def("get_pass", &RenderGraph::getPass, "name"_a);
+    renderGraph.def("__getitem__", [](RenderGraph& self, const std::string& name) { return self.getPass(name); });
     renderGraph.def("get_output", pybind11::overload_cast<const std::string&>(&RenderGraph::getOutput), "name"_a);
 
     // PYTHONDEPRECATED BEGIN
@@ -732,7 +766,8 @@ FALCOR_SCRIPT_BINDING(RenderGraph)
     );
     renderGraph.def_static(
         "createFromFile",
-        [](const std::filesystem::path& path) { return RenderGraph::createFromFile(accessActivePythonRenderGraphDevice(), path); }, "path"_a
+        [](const std::filesystem::path& path) { return RenderGraph::createFromFile(accessActivePythonRenderGraphDevice(), path); },
+        "path"_a
     );
 
     renderGraph.def("print", [](ref<RenderGraph> graph) { pybind11::print(RenderGraphExporter::getIR(graph)); });
@@ -741,13 +776,17 @@ FALCOR_SCRIPT_BINDING(RenderGraph)
         "createPass",
         [](RenderGraph& graph, const std::string& passName, const std::string& passType, pybind11::dict dict = {})
         { return graph.createPass(passName, passType, Properties(dict)); },
-        "passName"_a, "passType"_a, "dict"_a = pybind11::dict()
+        "passName"_a,
+        "passType"_a,
+        "dict"_a = pybind11::dict()
     );
     renderGraph.def("addPass", &RenderGraph::addPass, "pass_"_a, "name"_a);
     renderGraph.def("removePass", &RenderGraph::removePass, "name"_a);
     renderGraph.def(
-        "updatePass", [](RenderGraph& graph, const std::string& passName, pybind11::dict d) { graph.updatePass(passName, Properties(d)); },
-        "name"_a, "dict"_a
+        "updatePass",
+        [](RenderGraph& graph, const std::string& passName, pybind11::dict d) { graph.updatePass(passName, Properties(d)); },
+        "name"_a,
+        "dict"_a
     );
     renderGraph.def("addEdge", &RenderGraph::addEdge, "src"_a, "dst"_a);
     renderGraph.def(
@@ -764,7 +803,7 @@ FALCOR_SCRIPT_BINDING(RenderGraph)
     {
         auto pPass = RenderPass::create(type, accessActivePythonRenderGraphDevice(), Properties(d));
         if (!pPass)
-            throw RuntimeError("Can't create a render pass of type '{}'. Make sure the required plugin library was loaded.", type);
+            FALCOR_THROW("Can't create a render pass of type '{}'. Make sure the required plugin library was loaded.", type);
         return pPass;
     };
     m.def("createPass", globalCreateRenderPass, "type"_a, "dict"_a = pybind11::dict()); // PYTHONDEPRECATED

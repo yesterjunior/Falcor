@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -31,8 +31,9 @@
 #include "RenderGraph/RenderGraphImportExport.h"
 #include "Utils/Scripting/Scripting.h"
 #include "Utils/Scripting/ScriptWriter.h"
-#include "Utils/Settings.h"
+#include "Utils/Settings/Settings.h"
 #include <fstream>
+#include <pybind11/pybind11.h>
 
 namespace Mogwai
 {
@@ -54,6 +55,7 @@ namespace Mogwai
         const std::string kScene = "scene";
         const std::string kClock = "clock";
         const std::string kProfiler = "profiler";
+        const std::string kSceneUpdateCallback = "sceneUpdateCallback";
 
         const std::string kRendererVar = "m";
 
@@ -93,6 +95,7 @@ namespace Mogwai
         if (mpScene)
         {
             s += "# Scene\n";
+            // In the past we did try to find a relative path to the asset search directories, for now we skip this.
             s += ScriptWriter::makeMemberFunc(kRendererVar, kLoadScene, ScriptWriter::getPathString(mpScene->getPath()));
             const std::string sceneVar = kRendererVar + "." + kScene;
             s += mpScene->getScript(sceneVar);
@@ -138,6 +141,7 @@ namespace Mogwai
         renderer.def(kRemoveGraph.c_str(), pybind11::overload_cast<const std::string&>(&Renderer::removeGraph), "name"_a);
         renderer.def(kRemoveGraph.c_str(), pybind11::overload_cast<const ref<RenderGraph>&>(&Renderer::removeGraph), "graph"_a);
         renderer.def(kGetGraph.c_str(), &Renderer::getGraph, "name"_a);
+        renderer.def_property(kSceneUpdateCallback.c_str(), &Renderer::getSceneUpdateCallback, &Renderer::setSceneUpdateCallback);
 
         auto resizeFrameBuffer = [](Renderer* pRenderer, uint32_t width, uint32_t height) { pRenderer->resizeFrameBuffer(width, height); };
         renderer.def(kResizeFrameBuffer.c_str(), resizeFrameBuffer);
@@ -208,6 +212,10 @@ namespace Mogwai
         {
             r->getSettings().addFilteredAttributes(d);
         }, "dict"_a = pybind11::dict());
+        renderer.def("addFilteredAttributes", [](Renderer* r, pybind11::list l = pybind11::list{0})
+        {
+            r->getSettings().addFilteredAttributes(l);
+        }, "list"_a = pybind11::list());
         renderer.def("clearOptions", [](Renderer* r)
         {
             r->getSettings().clearOptions();

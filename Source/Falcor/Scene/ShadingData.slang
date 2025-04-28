@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 import Scene.Material.MaterialData;
-import Scene.HitInfo;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Math.ShadingFrame;
 
@@ -34,9 +33,9 @@ import Utils.Math.ShadingFrame;
 
     This includes:
     - Geometric properties of the surface.
+    - View direction.
     - Texture coordinates.
     - Material ID and header.
-    - Opacity value for alpha testing.
     - Index of refraction of the surrounding medium.
 
     Based on a ShadingData struct, the material system can be queried
@@ -44,24 +43,27 @@ import Utils.Math.ShadingFrame;
     The material instance has interfaces for sampling and evaluation, as well as for
     querying its properties at the hit.
 */
-struct ShadingData
+struct ShadingData : IDifferentiable
 {
     // Geometry data
-    float3  posW;                   ///< Shading hit position in world space.
-    float3  V;                      ///< View direction, -incident direction (-ray.dir)
-    float2  uv;                     ///< Texture mapping coordinates.
+    float3  posW;                       ///< Shading hit position in world space.
+    float3  V;                          ///< View direction, -incident direction (-ray.dir)
+    float2  uv;                         ///< Texture mapping coordinates.
 
-    ShadingFrame frame;             ///< Smooth interpolated shading frame in world space at the shading point. The normal is *not* automatically flipped for backfacing hits.
-    float3  faceN;                  ///< Face normal in world space, always on the front-facing side.
-    float4  tangentW;               ///< Geometric tangent (xyz) and sign (w) in world space. This is used for orthogonalization. Not normalized, but it is guaranteed to be nonzero and sign (w) is +-1.0.
-    bool    frontFacing;            ///< True if primitive seen from the front-facing side, i.e., dot(V, faceN) >= 0.0.
-    float   curveRadius;            ///< Curve cross-sectional radius. Valid only for geometry generated from curves.
+    ShadingFrame frame;                 ///< Smooth interpolated shading frame in world space at the shading point. The normal is *not* automatically flipped for backfacing hits.
+    no_diff float3  faceN;              ///< Face normal in world space, always on the front-facing side.
+    no_diff float4  tangentW;           ///< Geometric tangent (xyz) and sign (w) in world space. This is used for orthogonalization. Not normalized, but it is guaranteed to be nonzero and sign (w) is +-1.0.
+    bool            frontFacing;        ///< True if primitive seen from the front-facing side, i.e., dot(V, faceN) >= 0.0.
+    no_diff float   curveRadius;        ///< Curve cross-sectional radius. Valid only for geometry generated from curves.
 
     // Material data
-    MaterialHeader mtl;             ///< Material header data.
-    uint    materialID;             ///< Material ID at shading location.
-    float   opacity;                ///< Opacity value in [0,1]. This is used for alpha testing.
-    float   IoR;                    ///< Index of refraction for the medium on the front-facing side (i.e. "outside" the material at the hit).
+    MaterialHeader mtl;                 ///< Material header data.
+    uint    materialID;                 ///< Material ID at shading location.
+    float   IoR;                        ///< Index of refraction for the medium on the front-facing side (i.e. "outside" the material at the hit).
+
+    uint materialGradOffset;            ///< Offset to the material gradient in the gradient buffer.
+    uint geometryGradOffset;            ///< Offset to the geometry gradient in the gradient buffer.
+    uint threadID;                      ///< Thread ID for gradient aggregation with a hash grid.
 
 
     // Utility functions
@@ -72,7 +74,7 @@ struct ShadingData
         \param[in] viewside True if the origin should be on the view side (reflection) or false otherwise (transmission).
         \return Ray origin of the new ray.
     */
-    float3 computeNewRayOrigin(bool viewside = true)
+    float3 computeRayOrigin(bool viewside = true)
     {
         return computeRayOrigin(posW, (frontFacing == viewside) ? faceN : -faceN);
     }

@@ -16,9 +16,12 @@ project(Falcor
 # Configuration options
 # -----------------------------------------------------------------------------
 
-# Enable/disable reporting Falcor exceptions as fatal errors before actually throwing them.
-# This allows to break into the debugger at the location where an exception is thrown.
-set(FALCOR_REPORT_EXCEPTION_AS_ERROR OFF CACHE BOOL "Report Falcor exceptions as fatal errors (and break into debugger)")
+# Enable/disable asserts. AUTO enables asserts in debug builds.
+set(FALCOR_ENABLE_ASSERTS "AUTO" CACHE STRING "Enable asserts")
+set_property(CACHE FALCOR_ENABLE_ASSERTS PROPERTY STRINGS AUTO ON OFF)
+
+# Enable/disable the profiler.
+set(FALCOR_ENABLE_PROFILER ON CACHE BOOL "Enable profiler")
 
 # Enable/disable using system Python distribution. This requires Python 3.7 to be available.
 set(FALCOR_USE_SYSTEM_PYTHON OFF CACHE BOOL "Use system Python distribution")
@@ -346,11 +349,11 @@ file(TO_NATIVE_PATH ${output_dir} output_dir)
 
 if(FALCOR_WINDOWS)
     add_custom_target(deploy_dependencies ALL
-        COMMAND ${CMAKE_SOURCE_DIR}/build_scripts/deploycommon.bat ${source_dir} ${output_dir} $<CONFIG> ${FALCOR_SLANG_CONFIG} ${FALCOR_DLSS_DIR}
+        COMMAND ${CMAKE_SOURCE_DIR}/build_scripts/deploycommon.bat ${source_dir} ${output_dir} $<CONFIG> ${FALCOR_SLANG_DIR} ${FALCOR_DLSS_DIR}
     )
 elseif(FALCOR_LINUX)
     add_custom_target(deploy_dependencies ALL
-        COMMAND ${CMAKE_SOURCE_DIR}/build_scripts/deploycommon.sh ${source_dir} ${output_dir} $<CONFIG> ${FALCOR_SLANG_CONFIG} ${FALCOR_DLSS_DIR}
+        COMMAND ${CMAKE_SOURCE_DIR}/build_scripts/deploycommon.sh ${source_dir} ${output_dir} $<CONFIG> ${FALCOR_SLANG_DIR} ${FALCOR_DLSS_DIR}
     )
 endif()
 set_target_properties(deploy_dependencies PROPERTIES FOLDER "Misc")
@@ -429,6 +432,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 add_subdirectory(Source/Falcor)
+add_subdirectory(Source/Modules)
 add_subdirectory(Source/Mogwai)
 add_subdirectory(Source/plugins)
 add_subdirectory(Source/RenderPasses)

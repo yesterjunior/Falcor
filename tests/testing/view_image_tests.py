@@ -55,13 +55,15 @@ class Database:
     '''
     Helper for accessing image test results.
     '''
-    def __init__(self, env):
+    def __init__(self, env: Environment):
         result_dir_template = env.image_tests_result_dir
         ref_dir_template = env.image_tests_ref_dir
 
         # Substitute project_dir as it is a static part of the path.
         result_dir_template = result_dir_template.replace('${project_dir}', str(env.project_dir))
         ref_dir_template = ref_dir_template.replace('${project_dir}', str(env.project_dir))
+        result_dir_template = result_dir_template.replace('${project_drive}', str(env.project_dir.drive))
+        ref_dir_template = ref_dir_template.replace('${project_drive}', str(env.project_dir.drive))
 
         # Extract result directory and run pattern.
         index = result_dir_template.index('$')
@@ -392,7 +394,7 @@ def catch_all(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Utility for viewing results of image tests.")
-    parser.add_argument('-e', '--environment', type=str, action='store', help='Environment', default=config.DEFAULT_ENVIRONMENT)
+    parser.add_argument('-e', '--environment', type=str, action='store', help='Environment', default=None)
     parser.add_argument('--host', type=str, action='store', help='Server hostname', default='localhost')
     parser.add_argument('--port', type=int, action='store', help='Server port', default=8080)
     parser.add_argument('--debug', action='store_true', help='Debug mode')

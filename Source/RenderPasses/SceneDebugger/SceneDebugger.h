@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -28,15 +28,18 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Utils/Debug/PixelDebug.h"
 #include "Scene/HitInfoType.slang"
 #include "SharedTypes.slang"
 
+
 using namespace Falcor;
 
-/** Scene debugger render pass.
-
-    This pass helps identify asset issues such as incorrect normals.
-*/
+/**
+ * Scene debugger render pass.
+ *
+ * This pass helps identify asset issues such as incorrect normals.
+ */
 class SceneDebugger : public RenderPass
 {
 public:
@@ -64,13 +67,23 @@ private:
     void initInstanceInfo();
 
     // Internal state
-    ref<Scene>              mpScene;
-    SceneDebuggerParams     mParams;
-    ref<ComputePass>        mpDebugPass;
-    ref<GpuFence>           mpFence;
-    ref<Buffer>             mpPixelData;            ///< Buffer for recording pixel data at the selected pixel.
-    ref<Buffer>             mpPixelDataStaging;     ///< Readback buffer.
-    ref<Buffer>             mpMeshToBlasID;
-    ref<Buffer>             mpInstanceInfo;
-    bool                    mPixelDataAvailable = false;
+
+    std::unique_ptr<PixelDebug> mpPixelDebug; ///< Utility class for pixel debugging (print in shaders).
+    ref<SampleGenerator> mpSampleGenerator;
+    ref<Scene> mpScene;
+    sigs::Connection mUpdateFlagsConnection; ///< Connection to the UpdateFlags signal.
+    /// IScene::UpdateFlags accumulated since last `beginFrame()`
+    IScene::UpdateFlags mUpdateFlags = IScene::UpdateFlags::None;
+
+    SceneDebuggerParams mParams;
+    ref<ComputePass> mpDebugPass;
+    ref<Fence> mpFence;
+    /// Buffer for recording pixel data at the selected pixel.
+    ref<Buffer> mpPixelData;
+    /// Readback buffer.
+    ref<Buffer> mpPixelDataStaging;
+    ref<Buffer> mpMeshToBlasID;
+    ref<Buffer> mpInstanceInfo;
+    bool mPixelDataAvailable = false;
+    bool mVBufferAvailable = false;
 };

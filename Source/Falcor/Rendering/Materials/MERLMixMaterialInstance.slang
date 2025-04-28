@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ import Scene.Scene;
 
 /** Implementation of the BSDF for the measured MERLMix material.
 */
-struct MERLMixMaterialInstance : IMaterialInstance
+struct MERLMixMaterialInstance : MaterialInstanceBase, IMaterialInstance
 {
     ShadingFrame sf;    ///< Shading frame in world space.
     uint bufferID;      ///< Buffer ID in material system where BRDF data is stored.
@@ -71,12 +71,18 @@ struct MERLMixMaterialInstance : IMaterialInstance
         return evalLocal(wiLocal, woLocal);
     }
 
+    [Differentiable]
+    float3 evalAD<S : ISampleGenerator>(const DiffMaterialData diffData, const ShadingData sd, const float3 wo, inout S sg)
+    {
+        return float3(0.f);
+    }
+
     bool sample<S : ISampleGenerator>(const ShadingData sd, inout S sg, out BSDFSample result, bool useImportanceSampling = true)
     {
         float3 wiLocal = sf.toLocal(sd.V);
         float3 woLocal = {};
 #if SAMPLE_FITTED_BRDF
-        if (!fittedBrdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg)) return false;
+        if (!fittedBrdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg, BSDFContext())) return false;
 #else
         woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sg), result.pdf);
         result.lobeType = (uint)LobeType::DiffuseReflection;
@@ -98,7 +104,7 @@ struct MERLMixMaterialInstance : IMaterialInstance
         if (!isValidHemisphereReflection(sd, sf, wiLocal, woLocal, wo)) return 0.f;
 
 #if SAMPLE_FITTED_BRDF
-        return fittedBrdf.evalPdf(wiLocal, woLocal);
+        return fittedBrdf.evalPdf(wiLocal, woLocal, BSDFContext());
 #else
         return woLocal.z * M_1_PI; // pdf = cos(theta) / pi
 #endif

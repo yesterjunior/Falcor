@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -95,6 +95,7 @@ ref<ShaderResourceView> ShaderResourceView::create(
     uint32_t arraySize
 )
 {
+    FALCOR_CHECK(is_set(pTexture->getBindFlags(), ResourceBindFlags::ShaderResource), "Texture does not have SRV bind flag set.");
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.format = getGFXFormat(depthToColorFormat(pTexture->getFormat()));
@@ -108,48 +109,17 @@ ref<ShaderResourceView> ShaderResourceView::create(
     );
 }
 
-static void fillBufferViewDesc(gfx::IResourceView::Desc& desc, Buffer* pBuffer, uint32_t firstElement, uint32_t elementCount)
-{
-    auto format = depthToColorFormat(pBuffer->getFormat());
-    desc.format = getGFXFormat(format);
-
-    uint32_t bufferElementSize = 0;
-    uint64_t bufferElementCount = 0;
-    if (pBuffer->isTyped())
-    {
-        FALCOR_ASSERT(getFormatPixelsPerBlock(format) == 1);
-        bufferElementSize = getFormatBytesPerBlock(format);
-        bufferElementCount = pBuffer->getElementCount();
-    }
-    else if (pBuffer->isStructured())
-    {
-        bufferElementSize = pBuffer->getStructSize();
-        bufferElementCount = pBuffer->getElementCount();
-        desc.format = gfx::Format::Unknown;
-        desc.bufferElementSize = bufferElementSize;
-    }
-    else
-    {
-        desc.format = gfx::Format::Unknown;
-        bufferElementSize = 4;
-        bufferElementCount = pBuffer->getSize();
-    }
-
-    bool useDefaultCount = (elementCount == ShaderResourceView::kMaxPossible);
-    FALCOR_ASSERT(useDefaultCount || (firstElement + elementCount) <= bufferElementCount); // Check range
-    desc.bufferRange.firstElement = firstElement;
-    desc.bufferRange.elementCount = useDefaultCount ? (bufferElementCount - firstElement) : elementCount;
-}
-
-ref<ShaderResourceView> ShaderResourceView::create(Device* pDevice, Buffer* pBuffer, uint32_t firstElement, uint32_t elementCount)
+ref<ShaderResourceView> ShaderResourceView::create(Device* pDevice, Buffer* pBuffer, uint64_t offset, uint64_t size)
 {
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.type = gfx::IResourceView::Type::ShaderResource;
-    fillBufferViewDesc(desc, pBuffer, firstElement, elementCount);
+    desc.format = getGFXFormat(pBuffer->getFormat());
+    desc.bufferRange.offset = offset;
+    desc.bufferRange.size = size == kEntireBuffer ? 0 : size;
 
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createBufferView(pBuffer->getGfxBufferResource(), nullptr, desc, handle.writeRef()));
-    return ref<ShaderResourceView>(new ShaderResourceView(pDevice, pBuffer, handle, firstElement, elementCount));
+    return ref<ShaderResourceView>(new ShaderResourceView(pDevice, pBuffer, handle, offset, size));
 }
 
 ref<ShaderResourceView> ShaderResourceView::create(Device* pDevice, Dimension dimension)
@@ -166,6 +136,7 @@ ref<DepthStencilView> DepthStencilView::create(
     uint32_t arraySize
 )
 {
+    FALCOR_CHECK(is_set(pTexture->getBindFlags(), ResourceBindFlags::DepthStencil), "Texture does not have DSV bind flag set.");
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.format = getGFXFormat(pTexture->getFormat());
@@ -193,6 +164,7 @@ ref<UnorderedAccessView> UnorderedAccessView::create(
     uint32_t arraySize
 )
 {
+    FALCOR_CHECK(is_set(pTexture->getBindFlags(), ResourceBindFlags::UnorderedAccess), "Texture does not have UAV bind flag set.");
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.format = getGFXFormat(pTexture->getFormat());
@@ -205,17 +177,21 @@ ref<UnorderedAccessView> UnorderedAccessView::create(
     return ref<UnorderedAccessView>(new UnorderedAccessView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }
 
-ref<UnorderedAccessView> UnorderedAccessView::create(Device* pDevice, Buffer* pBuffer, uint32_t firstElement, uint32_t elementCount)
+ref<UnorderedAccessView> UnorderedAccessView::create(Device* pDevice, Buffer* pBuffer, uint64_t offset, uint64_t size)
 {
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.type = gfx::IResourceView::Type::UnorderedAccess;
-    fillBufferViewDesc(desc, pBuffer, firstElement, elementCount);
+    desc.format = getGFXFormat(pBuffer->getFormat());
+    desc.bufferRange.offset = offset;
+    desc.bufferRange.size = size == kEntireBuffer ? 0 : size;
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createBufferView(
-        pBuffer->getGfxBufferResource(), pBuffer->getUAVCounter() ? pBuffer->getUAVCounter()->getGfxBufferResource() : nullptr, desc,
+        pBuffer->getGfxBufferResource(),
+        pBuffer->getUAVCounter() ? pBuffer->getUAVCounter()->getGfxBufferResource() : nullptr,
+        desc,
         handle.writeRef()
     ));
-    return ref<UnorderedAccessView>(new UnorderedAccessView(pDevice, pBuffer, handle, firstElement, elementCount));
+    return ref<UnorderedAccessView>(new UnorderedAccessView(pDevice, pBuffer, handle, offset, size));
 }
 
 ref<UnorderedAccessView> UnorderedAccessView::create(Device* pDevice, Dimension dimension)
@@ -231,6 +207,7 @@ ref<RenderTargetView> RenderTargetView::create(
     uint32_t arraySize
 )
 {
+    FALCOR_CHECK(is_set(pTexture->getBindFlags(), ResourceBindFlags::RenderTarget), "Texture does not have RTV bind flag set.");
     Slang::ComPtr<gfx::IResourceView> handle;
     gfx::IResourceView::Desc desc = {};
     desc.format = getGFXFormat(pTexture->getFormat());

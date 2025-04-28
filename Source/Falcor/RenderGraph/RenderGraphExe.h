@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@
 #include "Core/API/Formats.h"
 #include "Utils/Math/Vector.h"
 #include "Utils/UI/Gui.h"
-#include "Utils/InternalDictionary.h"
+#include "Utils/Dictionary.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,7 +49,7 @@ public:
     struct Context
     {
         RenderContext* pRenderContext;
-        InternalDictionary& passesDictionary;
+        Dictionary& passesDictionary;
         uint2 defaultTexDims;
         ResourceFormat defaultTexFormat;
     };
@@ -63,6 +63,11 @@ public:
      * Render the UI
      */
     void renderUI(RenderContext* pRenderContext, Gui::Widgets& widget);
+
+    /**
+     * Render the overlay UI
+     */
+    void renderOverlayUI(RenderContext* pRenderContext);
 
     /**
      * Mouse event handler.

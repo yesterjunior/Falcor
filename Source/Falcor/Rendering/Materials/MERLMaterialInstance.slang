@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -42,7 +42,7 @@ import Scene.Scene;
 
 /** Implementation of the BSDF for the measured MERL material.
 */
-struct MERLMaterialInstance : IMaterialInstance
+struct MERLMaterialInstance : MaterialInstanceBase, IMaterialInstance
 {
     ShadingFrame sf;    ///< Shading frame in world space.
     uint bufferID;      ///< Buffer ID in material system where BRDF data is stored.
@@ -67,10 +67,16 @@ struct MERLMaterialInstance : IMaterialInstance
         if (!isValidHemisphereReflection(sd, sf, wiLocal, woLocal, wo)) return float3(0.f);
 
 #if VISUALIZE_FITTED_BRDF
-        return fittedBrdf.eval(wiLocal, woLocal, sg);
+        return fittedBrdf.eval(wiLocal, woLocal, sg, BSDFContext());
 #else
         return evalLocal(wiLocal, woLocal);
 #endif
+    }
+
+    [Differentiable]
+    float3 evalAD<S : ISampleGenerator>(const DiffMaterialData diffData, const ShadingData sd, const float3 wo, inout S sg)
+    {
+        return float3(0.f);
     }
 
     bool sample<S : ISampleGenerator>(const ShadingData sd, inout S sg, out BSDFSample result, bool useImportanceSampling = true)
@@ -79,7 +85,7 @@ struct MERLMaterialInstance : IMaterialInstance
 
 #if SAMPLE_FITTED_BRDF
         float3 woLocal = {};
-        if (!fittedBrdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg)) return false;
+        if (!fittedBrdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg, BSDFContext())) return false;
         result.wo = sf.fromLocal(woLocal);
 
         if (!isValidHemisphereReflection(sd, sf, wiLocal, woLocal, result.wo) || result.pdf == 0.f) return false;
@@ -115,7 +121,7 @@ struct MERLMaterialInstance : IMaterialInstance
         if (!isValidHemisphereReflection(sd, sf, wiLocal, woLocal, wo)) return 0.f;
 
 #if SAMPLE_FITTED_BRDF
-        return fittedBrdf.evalPdf(wiLocal, woLocal);
+        return fittedBrdf.evalPdf(wiLocal, woLocal, BSDFContext());
 #else
         return woLocal.z * M_1_PI; // pdf = cos(theta) / pi
 #endif

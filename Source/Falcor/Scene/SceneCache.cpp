@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -117,6 +117,17 @@ namespace Falcor
             if (hasValue) write(opt.value());
         }
 
+        template<typename K, typename V>
+        void write(const std::map<K,V>& map)
+        {
+            write((uint32_t)map.size());
+            for (const auto& e : map)
+            {
+                write(e.first);
+                write(e.second);
+            }
+        }
+
     private:
         std::ostream& mStream;
     };
@@ -188,6 +199,18 @@ namespace Falcor
             }
         }
 
+        template<typename K, typename V>
+        void read(std::map<K,V>& map)
+        {
+            uint32_t count = read<uint32_t>();
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                K k = read<K>();
+                V v = read<V>();
+                map.emplace(k, v);
+            }
+        }
+
     private:
         std::istream& mStream;
     };
@@ -218,7 +241,7 @@ namespace Falcor
 
         // Open file.
         std::ofstream fs(cachePath.c_str(), std::ios_base::binary);
-        if (fs.bad()) throw RuntimeError("Failed to create scene cache file '{}'.", cachePath);
+        if (fs.bad()) FALCOR_THROW("Failed to create scene cache file '{}'.", cachePath);
 
         // Write header (uncompressed).
         Header header;
@@ -230,7 +253,7 @@ namespace Falcor
         lz4_stream::basic_ostream<kBlockSize> zs(fs);
         OutputStream stream(zs);
         writeSceneData(stream, sceneData);
-        if (fs.bad()) throw RuntimeError("Failed to write scene cache file to '{}'.", cachePath);
+        if (fs.bad()) FALCOR_THROW("Failed to write scene cache file to '{}'.", cachePath);
     }
 
     Scene::SceneData SceneCache::readCache(ref<Device> pDevice, const Key& key)
@@ -241,18 +264,18 @@ namespace Falcor
 
         // Open file.
         std::ifstream fs(cachePath.c_str(), std::ios_base::binary);
-        if (fs.bad()) throw RuntimeError("Failed to open scene cache file '{}'.", cachePath);
+        if (fs.bad()) FALCOR_THROW("Failed to open scene cache file '{}'.", cachePath);
 
         // Read header (uncompressed).
         Header header;
         fs.read(reinterpret_cast<char*>(&header), sizeof(header));
-        if (!header.isValid()) throw RuntimeError("Invalid header in scene cache file '{}'.", cachePath);
+        if (!header.isValid()) FALCOR_THROW("Invalid header in scene cache file '{}'.", cachePath);
 
         // Read cache (compressed).
         lz4_stream::basic_istream<kBlockSize, kBlockSize> zs(fs);
         InputStream stream(zs);
         auto sceneData = readSceneData(stream, pDevice);
-        if (fs.bad()) throw RuntimeError("Failed to read scene cache file from '{}'.", cachePath);
+        if (fs.bad()) FALCOR_THROW("Failed to read scene cache file from '{}'.", cachePath);
         return sceneData;
     }
 
@@ -265,8 +288,13 @@ namespace Falcor
 
     void SceneCache::writeSceneData(OutputStream& stream, const Scene::SceneData& sceneData)
     {
-        writeMarker(stream, "Path");
-        stream.write(sceneData.path);
+        writeMarker(stream, "Paths");
+        stream.write((uint32_t)sceneData.importPaths.size());
+        for (const auto& pPath: sceneData.importPaths) stream.write(pPath);
+
+        writeMarker(stream, "Dicts");
+        stream.write((uint32_t)sceneData.importDicts.size());
+        for (const auto& pDict: sceneData.importDicts) stream.write(pDict);
 
         writeMarker(stream, "RenderSettings");
         stream.write(sceneData.renderSettings);
@@ -347,8 +375,8 @@ namespace Falcor
         stream.write(sceneData.has16BitIndices);
         stream.write(sceneData.has32BitIndices);
         stream.write(sceneData.meshDrawCount);
-        stream.write(sceneData.meshIndexData);
-        stream.write(sceneData.meshStaticData);
+        writeSplitBuffer(stream, sceneData.meshIndexData);
+        writeSplitBuffer(stream, sceneData.meshStaticData);
         stream.write(sceneData.meshSkinningData);
 
         writeMarker(stream, "Curves");
@@ -381,8 +409,13 @@ namespace Falcor
         Scene::SceneData sceneData;
         sceneData.pMaterials = std::make_unique<MaterialSystem>(pDevice);
 
-        readMarker(stream, "Path");
-        stream.read(sceneData.path);
+        readMarker(stream, "Paths");
+        sceneData.importPaths.resize(stream.read<uint32_t>());
+        for (auto& pPath : sceneData.importPaths) stream.read(pPath);
+
+        readMarker(stream, "Dicts");
+        sceneData.importDicts.resize(stream.read<uint32_t>());
+        for (auto& pDict : sceneData.importDicts) stream.read(pDict);
 
         readMarker(stream, "RenderSettings");
         stream.read(sceneData.renderSettings);
@@ -468,8 +501,8 @@ namespace Falcor
         stream.read(sceneData.has16BitIndices);
         stream.read(sceneData.has32BitIndices);
         stream.read(sceneData.meshDrawCount);
-        stream.read(sceneData.meshIndexData);
-        stream.read(sceneData.meshStaticData);
+        readSplitBuffer(stream, sceneData.meshIndexData);
+        readSplitBuffer(stream, sceneData.meshStaticData);
         stream.read(sceneData.meshSkinningData);
 
         readMarker(stream, "Curves");
@@ -688,7 +721,7 @@ namespace Falcor
 
         // Write data in derived class.
         if (auto pBasicMaterial = pMaterial->toBasicMaterial()) writeBasicMaterial(stream, pBasicMaterial);
-        else throw RuntimeError("Unsupported material type");
+        else FALCOR_THROW("Unsupported material type");
     }
 
     void SceneCache::writeBasicMaterial(OutputStream& stream, const ref<BasicMaterial>& pMaterial)
@@ -735,7 +768,7 @@ namespace Falcor
                 pMaterial = ClothMaterial::create(pDevice, "");
                 break;
             default:
-                throw RuntimeError("Unsupported material type");
+                FALCOR_THROW("Unsupported material type");
             }
         }
         FALCOR_ASSERT(pMaterial);
@@ -763,7 +796,7 @@ namespace Falcor
 
         // Read data in derived class.
         if (auto pBasicMaterial = pMaterial->toBasicMaterial()) readBasicMaterial(stream, materialTextureLoader, pBasicMaterial, pDevice);
-        else throw RuntimeError("Unsupported material type");
+        else FALCOR_THROW("Unsupported material type");
 
         return pMaterial;
     }
@@ -797,7 +830,7 @@ namespace Falcor
         if (valid)
         {
             auto desc = stream.read<Sampler::Desc>();
-            return Sampler::create(pDevice, desc);
+            return pDevice->createSampler(desc);
         }
         return nullptr;
     }
@@ -883,7 +916,7 @@ namespace Falcor
     {
         auto path = stream.read<std::filesystem::path>();
         auto pEnvMap = EnvMap::createFromFile(pDevice, path);
-        if (!pEnvMap) throw RuntimeError("Failed to load environment map");
+        if (!pEnvMap) FALCOR_THROW("Failed to load environment map");
         stream.read(pEnvMap->mData);
         stream.read(pEnvMap->mRotation);
         return pEnvMap;
@@ -945,6 +978,24 @@ namespace Falcor
     void SceneCache::readMarker(InputStream& stream, const std::string& id)
     {
         auto str = stream.read<std::string>();
-        if (id != str) throw RuntimeError("Found invalid marker");
+        if (id != str) FALCOR_THROW("Found invalid marker");
     }
+
+    // SplitBuffer
+    template<typename T, bool TUseByteAddressBuffer>
+    void SceneCache::writeSplitBuffer(OutputStream& stream, const SplitBuffer<T, TUseByteAddressBuffer>& buffer)
+    {
+        stream.write(buffer.mBufferName);
+        stream.write(buffer.mBufferCountDefinePrefix);
+        stream.write(buffer.mCpuBuffers);
+    }
+
+    template<typename T, bool TUseByteAddressBuffer>
+    void SceneCache::readSplitBuffer(InputStream& stream, SplitBuffer<T, TUseByteAddressBuffer>& buffer)
+    {
+        stream.read(buffer.mBufferName);
+        stream.read(buffer.mBufferCountDefinePrefix);
+        stream.read(buffer.mCpuBuffers);
+    }
+
 }

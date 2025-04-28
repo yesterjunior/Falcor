@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -88,14 +88,15 @@ namespace Falcor
             \param[in] pScene The scene.
             \param[in] options The options to override the default behavior.
         */
-        LightBVHSampler(RenderContext* pRenderContext, ref<Scene> pScene, const Options& options = Options());
+        LightBVHSampler(RenderContext* pRenderContext, ref<ILightCollection> pLightCollection, const Options& options = Options());
         virtual ~LightBVHSampler() = default;
 
         /** Updates the sampler to the current frame.
             \param[in] pRenderContext The render context.
+            \param[in] pLightCollection Updated LightCollection
             \return True if the sampler was updated.
         */
-        virtual bool update(RenderContext* pRenderContext) override;
+        virtual bool update(RenderContext* pRenderContext, ref<ILightCollection> pLightCollection) override;
 
         /** Return a list of shader defines to use this light sampler.
         *   \return Returns a list of shader defines.
@@ -105,7 +106,7 @@ namespace Falcor
         /** Bind the light sampler data to a given shader variable.
             \param[in] var Shader variable.
         */
-        virtual void setShaderData(const ShaderVar& var) const override;
+        virtual void bindShaderData(const ShaderVar& var) const override;
 
         /** Render the GUI.
             \return True if setting the refresh flag is needed, false otherwise.
@@ -115,6 +116,8 @@ namespace Falcor
         /** Returns the current configuration.
         */
         const Options& getOptions() const { return mOptions; }
+
+        void setOptions(const Options& options);
 
     protected:
         /// Configuration options.

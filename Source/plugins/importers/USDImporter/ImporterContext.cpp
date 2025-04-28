@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -26,22 +26,20 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "ImporterContext.h"
-#include "USDHelpers.h"
 #include "Core/API/Device.h"
 #include "Utils/NumericRange.h"
 #include "Scene/Importer.h"
 #include "Scene/Curves/CurveConfig.h"
 #include "Scene/Material/HairMaterial.h"
 #include "Scene/Material/StandardMaterial.h"
-#include "Utils/Settings.h"
-#include "Tessellation.h"
-
-#include <pybind11/pybind11.h>
+#include "Utils/Settings/Settings.h"
+#include "USDUtils/USDHelpers.h"
+#include "USDUtils/USDUtils.h"
+#include "USDUtils/USDScene1Utils.h"
+#include "USDUtils/Tessellator/Tessellation.h"
+#include "Utils/Settings/Settings.h"
 
 #include <tbb/parallel_for.h>
-
-#include <opensubdiv/far/topologyDescriptor.h>
-#include <opensubdiv/far/primvarRefiner.h>
 
 BEGIN_DISABLE_USD_WARNINGS
 #include <pxr/usd/usd/primRange.h>
@@ -108,14 +106,14 @@ namespace Falcor
         // the starting index into each stored with each GeomSubset.
         struct MeshGeomData
         {
-            std::vector<uint32_t> triangulatedIndices;              // Triangle point indices
-            std::vector<float3> points;                             // Vertex positions (always indexed)
-            std::vector<float3> normals;                            // Normals; indexed iff normalInterp is vertex or varying
-            std::vector<float4> tangents;                           // Tangents; optional and always indexed
-            std::vector<float2> texCrds;                            // Texture coordinates, indexed iff texCrdsInterp is vertex or varying
-            std::vector<float> curveRadii;                          // Curve widths (always indexed; available if mesh was generated for a curve tessellated into triangles)
-            std::vector<uint4> jointIndices;                        // Bone indices
-            std::vector<float4> jointWeights;                       // Bone weights corresponding to the bones referenced in jointIndices
+            fast_vector<uint32_t> triangulatedIndices;              // Triangle point indices
+            fast_vector<float3> points;                             // Vertex positions (always indexed)
+            fast_vector<float3> normals;                            // Normals; indexed iff normalInterp is vertex or varying
+            fast_vector<float4> tangents;                           // Tangents; optional and always indexed
+            fast_vector<float2> texCrds;                            // Texture coordinates, indexed iff texCrdsInterp is vertex or varying
+            fast_vector<float> curveRadii;                          // Curve widths (always indexed; available if mesh was generated for a curve tessellated into triangles)
+            fast_vector<uint4> jointIndices;                        // Bone indices
+            fast_vector<float4> jointWeights;                       // Bone weights corresponding to the bones referenced in jointIndices
             std::vector<GeomSubset> geomSubsets;                    // Geometry subset data; one entry for entire mesh if no subsets are present
             AttributeFrequency normalInterp;                        // Normal interpolation mode
             AttributeFrequency texCrdsInterp;                       // Texture coordinate interpolation mode
@@ -127,10 +125,10 @@ namespace Falcor
         struct CurveGeomData
         {
             uint32_t degree;                                        // Polynomial degree of curve; linear (1) by default
-            std::vector<uint32_t> indices;                          // First point indices of curve segments
-            std::vector<float3> points;                             // Vertex positions
-            std::vector<float> radius;                              // Radius of spheres at curve ends
-            std::vector<float2> texCrds;                            // Texture coordinates
+            fast_vector<uint32_t> indices;                          // First point indices of curve segments
+            fast_vector<float3> points;                             // Vertex positions
+            fast_vector<float> radius;                              // Radius of spheres at curve ends
+            fast_vector<float2> texCrds;                            // Texture coordinates
             std::string id;                                         // Name; equal to name of UsdGeomBasisCurves
             UsdShadeMaterial material;                              // Bound material
         };
@@ -231,8 +229,8 @@ namespace Falcor
                 if (texCoordPrimvars.size() > 1)
                 {
                     // USD allows specifying multiple sets of texture coordinates, whereas Falcor only supports a single set.
-                    logWarning("Prim '{}' specifies more than one set of texture coordinates. Using '{}', ignoring others.",
-                               prim.GetPath().GetString(), primvar.GetName().GetString());
+                    logWarning("Prim '{}' specifies {} sets of texture coordinates. Using '{}', ignoring others.",
+                               prim.GetPath().GetString(), texCoordPrimvars.size(), primvar.GetName().GetString());
                 }
                 return true;
             }
@@ -452,7 +450,7 @@ namespace Falcor
                 // one subset, either explicitly, or to the implied "catch-all" subset.
 
                 // Construct mapping from face idx to subset idx
-                VtIntArray faceMap(tessellatedMesh.topology.getNumFaces(), -1);
+                VtIntArray faceMap(baseMesh.topology.getNumFaces(), -1);
                 for (uint32_t i = 0; i < subsetCount; ++i)
                 {
                     const UsdGeomSubset& geomSubset = geomSubsets[i];
@@ -474,12 +472,12 @@ namespace Falcor
                 }
 
                 // Unmapped faces are assigned to a separate catchall subset
-                VtIntArray unassignedIndices = UsdGeomSubset::GetUnassignedIndices(geomSubsets, tessellatedMesh.topology.getNumFaces());
+                VtIntArray unassignedIndices = UsdGeomSubset::GetUnassignedIndices(geomSubsets, baseMesh.topology.getNumFaces());
                 if (unassignedIndices.size() > 0)
                 {
                     for (int idx : unassignedIndices)
                     {
-                        FALCOR_ASSERT(faceMap[idx] == -1);
+                        FALCOR_CHECK(faceMap[idx] == -1, "A face appears in more than one subset");
                         faceMap[idx] = subsetCount;
                     }
                     ++subsetCount;
@@ -921,6 +919,7 @@ namespace Falcor
             // Convert geom data to keyframe data for the mesh at a particular sample
             FALCOR_ASSERT(geomData.geomSubsets.size() == mesh.processedMeshes.size());
             FALCOR_ASSERT(!mesh.meshIDs.empty()); // Mesh should have been added to builder already
+            std::vector<float4> tempTangents;
             for (size_t i = 0; i < geomData.geomSubsets.size(); ++i)
             {
                 // Create mesh to set up data according to subsets
@@ -932,7 +931,9 @@ namespace Falcor
 
                 if (sbMesh.tangents.pData == nullptr)
                 {
-                    ctx.builder.generateTangents(sbMesh, geomData.tangents);
+                    tempTangents.clear();
+                    ctx.builder.generateTangents(sbMesh, tempTangents);
+                    geomData.tangents.assign(tempTangents.begin(), tempTangents.end());
                 }
 
                 auto& indices = mesh.attributeIndices[i];
@@ -1128,20 +1129,8 @@ namespace Falcor
                     }
                 );
 
-                // Gather keyframe data from all meshes
-                size_t totalMeshes = 0;
-                for (auto& m : ctx.meshes) totalMeshes += m.cachedMeshes.size();
-                std::vector<CachedMesh> cachedMeshes;
-                cachedMeshes.reserve(totalMeshes);
-
                 for (auto& m : ctx.meshes)
-                {
-                    for (auto& c : m.cachedMeshes)
-                    {
-                        cachedMeshes.push_back(std::move(c));
-                    }
-                }
-                ctx.builder.setCachedMeshes(std::move(cachedMeshes));
+                    ctx.builder.addCachedMeshes(std::move(m.cachedMeshes));
             }
 
             timeReport.measure("Process meshes");
@@ -1295,7 +1284,7 @@ namespace Falcor
 
             // Add curve vertex cache (only has positions) to scene builder.
             for (auto& curve : ctx.curves) ctx.addCachedCurve(curve);
-            ctx.builder.setCachedCurves(std::move(ctx.cachedCurves));
+            ctx.builder.addCachedCurves(std::move(ctx.cachedCurves));
 
             timeReport.measure("Process curves");
 
@@ -1583,7 +1572,7 @@ namespace Falcor
 
         std::lock_guard<std::mutex> lock(materialMutex);
         builder.addMaterial(std::move(pMaterial));
-        localDict[materialName] = materialName;
+        localMaterialToShortName[materialName] = materialName;
 
         addMesh(mesh.GetPrim());
         addGeomInstance(lightPrim.GetName(), mesh.GetPrim(), float4x4::identity(), float4x4::identity());
@@ -1737,6 +1726,9 @@ namespace Falcor
 
     void ImporterContext::addCachedCurve(Curve& curve)
     {
+        if (curve.timeSamples.size() <= 1)
+            return;
+
         CachedCurve cachedCurve;
         cachedCurve.tessellationMode = curve.tessellationMode;
         cachedCurve.geometryID = curve.geometryID;
@@ -1791,10 +1783,10 @@ namespace Falcor
         cachedCurves.push_back(cachedCurve);
     }
 
-    ImporterContext::ImporterContext(const std::filesystem::path& stagePath, UsdStageRefPtr pStage, SceneBuilder& builder, const pybind11::dict& dict, TimeReport& timeReport, bool useInstanceProxies /*= false*/)
+    ImporterContext::ImporterContext(const std::filesystem::path& stagePath, UsdStageRefPtr pStage, SceneBuilder& builder, const std::map<std::string, std::string>& materialToShortName, TimeReport& timeReport, bool useInstanceProxies /*= false*/)
         : stagePath(stagePath)
         , pStage(pStage)
-        , dict(dict)
+        , materialToShortName(materialToShortName)
         , timeReport(timeReport)
         , builder(builder)
         , useInstanceProxies(useInstanceProxies)
@@ -1810,7 +1802,7 @@ namespace Falcor
         if (material)
         {
             // Note that this call will block if another thread is in the process of converting the same material.
-            pMaterial = mpPreviewSurfaceConverter->convert(material, primName, builder.getDevice()->getRenderContext());
+            pMaterial = mpPreviewSurfaceConverter->convert(material, builder.getDevice()->getRenderContext());
         }
         if (!pMaterial)
         {
@@ -1946,6 +1938,31 @@ namespace Falcor
         }
     }
 
+    void ImporterContext::applyVariantOverrides(UsdPrim& prim, const Falcor::Settings& settings)
+    {
+        UsdVariantSets variantSets(prim.GetVariantSets());
+        std::vector<std::string> variantSetNames(variantSets.GetNames());
+        const std::string primName(prim.GetPath().GetString());
+        // Because the attribute dictionary is flattened, we must iterate over
+        // "variants:variant-name", rather than querying to see if any varients are specified.
+        for (const auto& variantSetName : variantSetNames)
+        {
+            std::string attributeKey = "variants:" + variantSetName;
+            std::string variantValue(settings.getAttribute<std::string>(primName, attributeKey, ""));
+            if (!variantValue.empty())
+            {
+                if (variantSets[variantSetName].HasAuthoredVariant(variantValue))
+                {
+                    variantSets[variantSetName].SetVariantSelection(variantValue);
+                }
+                else
+                {
+                    logWarning("Variant set '{}' specified for '{}' on prim '{}' does not exist. Ignoring.", variantValue, variantSetName, primName);
+                }
+            }
+        }
+    }
+
     void ImporterContext::createPrototype(const UsdPrim& rootPrim)
     {
         PrototypeGeom proto(rootPrim, timeCodesPerSecond);
@@ -1964,6 +1981,11 @@ namespace Falcor
             if (!it.IsPostVisit())
             {
                 // Pre visits
+
+                if (prim.HasVariantSets())
+                {
+                    applyVariantOverrides(prim, builder.getSettings());
+                }
 
                 // If this prim has an xform associated with it, push it onto the xform stack
                 if (prim.IsA<UsdGeomXformable>())
@@ -2188,7 +2210,7 @@ namespace Falcor
     {
         if (curves.size() >= std::numeric_limits<uint32_t>::max())
         {
-            throw RuntimeError("Curve count exceeds the maximum");
+            FALCOR_THROW("Curve count exceeds the maximum");
         }
 
         uint32_t index = (uint32_t)curves.size();
@@ -2301,10 +2323,10 @@ namespace Falcor
             // Load bone data
             UsdSkelTopology skelTopo = skelQuery.GetTopology();
 
-            VtArray<GfMatrix4d> bindTransform;
+            VtArray<GfMatrix4f> bindTransform;
             skelQuery.GetJointWorldBindTransforms(&bindTransform);
 
-            VtArray<GfMatrix4d> restTransform;
+            VtArray<GfMatrix4f> restTransform;
             skelQuery.ComputeJointLocalTransforms(&restTransform, UsdTimeCode::EarliestTime(), true);
 
             for (size_t i = 0; i < joints.size(); i++)
@@ -2412,12 +2434,12 @@ namespace Falcor
     {
         if (rootXformNodeId != NodeID::Invalid())
         {
-            throw RuntimeError("ImporterContext::setRootXform() - Root xform has already been set.");
+            FALCOR_THROW("ImporterContext::setRootXform() - Root xform has already been set.");
         }
 
         if (!nodeStack.empty())
         {
-            throw RuntimeError("ImporterContext::setRootXform() - node stack must be empty.");
+            FALCOR_THROW("ImporterContext::setRootXform() - node stack must be empty.");
         }
 
         rootXform = xform;

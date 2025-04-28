@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -31,7 +31,7 @@ import Rendering.Materials.LayeredBSDF;
 import Rendering.Materials.PBRT.PBRTConductorMaterialInstance;
 import Rendering.Materials.PBRT.PBRTDielectricMaterialInstance;
 
-struct PBRTCoatedConductorMaterialInstance : IMaterialInstance
+struct PBRTCoatedConductorMaterialInstance : MaterialInstanceBase, IMaterialInstance
 {
     ShadingFrame sf;            ///< Shading frame in world space.
     AnisotropicGGX interfaceD;
@@ -51,7 +51,14 @@ struct PBRTCoatedConductorMaterialInstance : IMaterialInstance
         PBRTDielectricBSDF top = {interfaceD, interfaceEta};
         PBRTConductorBSDF bottom = {conductorD, conductorEta, conductorK};
 
-        return LayeredBSDF(top, bottom).eval(wiLocal, woLocal, sg);
+        const BSDFContext bc = BSDFContext(sd.IoR, top.getEta());
+        return LayeredBSDF(top, bottom).eval(wiLocal, woLocal, sg, bc);
+    }
+
+    [Differentiable]
+    float3 evalAD<S : ISampleGenerator>(const DiffMaterialData diffData, const ShadingData sd, const float3 wo, inout S sg)
+    {
+        return float3(0.f);
     }
 
     bool sample<S : ISampleGenerator>(const ShadingData sd, inout S sg, out BSDFSample result, bool useImportanceSampling = true)
@@ -62,7 +69,10 @@ struct PBRTCoatedConductorMaterialInstance : IMaterialInstance
         PBRTDielectricBSDF top = {interfaceD, interfaceEta};
         PBRTConductorBSDF bottom = {conductorD, conductorEta, conductorK};
 
-        bool valid = LayeredBSDF(top, bottom).sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg);
+        // We flip the material so that on both sides we coat the conductor with the dielectric. Note that this has little implications
+        // since we evaluate black when hitting the inside.
+        const BSDFContext bc = BSDFContext(sd.IoR, top.getEta());
+        bool valid = LayeredBSDF(top, bottom).sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg, bc);
         result.wo = sf.fromLocal(woLocal);
 
         if (!isValidHemisphereReflection(sd, sf, wiLocal, woLocal, result.wo) || result.pdf == 0.f) return false;
@@ -79,8 +89,9 @@ struct PBRTCoatedConductorMaterialInstance : IMaterialInstance
 
         PBRTDielectricBSDF top = {interfaceD, interfaceEta};
         PBRTConductorBSDF bottom = {conductorD, conductorEta, conductorK};
-        
-        return LayeredBSDF(top, bottom).evalPdf(wiLocal, woLocal);
+
+        const BSDFContext bc = BSDFContext(sd.IoR, top.getEta());
+        return LayeredBSDF(top, bottom).evalPdf(wiLocal, woLocal, bc);
     }
 
     BSDFProperties getProperties(const ShadingData sd)

@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -29,7 +29,7 @@
 #include "MogwaiSettings.h"
 #include "Core/Program/ProgramManager.h"
 #include "Utils/Scripting/Console.h"
-#include "Utils/Settings.h"
+#include "Utils/Settings/Settings.h"
 #include <iomanip>
 #include <sstream>
 
@@ -43,6 +43,7 @@ namespace Mogwai
                 "F1 - Show the help message\n"
                 "F9 - Show/hide the time\n"
                 "F6 - Show/hide the graph UI\n"
+                "F7 - Enable/disable the overlay UI\n"
                 "F10 - Show/hide the FPS\n"
                 "F11 - Enable/disable main menu auto-hiding\n"
                 "\n";
@@ -223,13 +224,17 @@ namespace Mogwai
             g.text("Program compilation:\n");
 
             const auto& s = mpRenderer->getDevice()->getProgramManager()->getCompilationStats();
+            double totalTime, downstreamTime;
+            mpRenderer->getDevice()->getSlangGlobalSession()->getCompilerElapsedTime(&totalTime, &downstreamTime);
             std::ostringstream oss;
             oss << "Program version count: " << s.programVersionCount << std::endl
                 << "Program kernels count: " << s.programKernelsCount << std::endl
                 << "Program version time (total): " << s.programVersionTotalTime << " s" << std::endl
                 << "Program kernels time (total): " << s.programKernelsTotalTime << " s" << std::endl
                 << "Program version time (max): " << s.programVersionMaxTime << " s" << std::endl
-                << "Program kernels time (max): " << s.programKernelsMaxTime << " s" << std::endl;
+                << "Program kernels time (max): " << s.programKernelsMaxTime << " s" << std::endl
+                << "Total shader code-gen time: " << totalTime << " s" << std::endl
+                << "Downstream compilation time: " << downstreamTime << " s" << std::endl;
             g.text(oss.str());
 
             if (g.button("Reset"))
@@ -253,6 +258,9 @@ namespace Mogwai
         // Graph UI
         auto pActiveGraph = mpRenderer->mGraphs[mpRenderer->mActiveGraph].pGraph;
         pActiveGraph->renderUI(mpRenderer->getRenderContext(), w);
+
+        if (mShowOverlayUI)
+            pActiveGraph->renderOverlayUI(mpRenderer->getRenderContext());
     }
 
     void MogwaiSettings::renderMainMenu(Gui* pGui)
@@ -299,6 +307,7 @@ namespace Mogwai
         {
             auto view = m.dropdown("View");
             view.item("Graph UI", mShowGraphUI, "F6");
+            view.item("Overlay UI", mShowOverlayUI, "F7");
             view.item("Auto Hide", mAutoHideMenu, "F11");
             view.item("FPS", mShowFps, "F10");
             view.item("Time", mShowTime, "F9");
@@ -360,6 +369,9 @@ namespace Mogwai
                 case Input::Key::F11:
                     mAutoHideMenu = !mAutoHideMenu;
                     break;
+                case Input::Key::F7:
+                    mShowOverlayUI = !mShowOverlayUI;
+                    break;
                 case Input::Key::F6:
                     mShowGraphUI = !mShowGraphUI;
                     break;
@@ -400,17 +412,14 @@ namespace Mogwai
         return false;
     }
 
-    void MogwaiSettings::onOptionsChange(const SettingsProperties& options)
+    void MogwaiSettings::onOptionsChange(const Settings::Options& options)
     {
-        if (auto local = options.get<SettingsProperties>("MogwaiSettings"))
-        {
-            mAutoHideMenu = local->get("mAutoHideMenu", mAutoHideMenu);
-            mShowFps      = local->get("mShowFps", mShowFps);
-            mShowGraphUI  = local->get("mShowGraphUI", mShowGraphUI);
-            mShowConsole  = local->get("mShowConsole", mShowConsole);
-            mShowTime     = local->get("mShowTime", mShowTime);
-            mShowWinSize  = local->get("mShowWinSize", mShowWinSize);
-        }
+        mAutoHideMenu = options.get("MogwaiSettings:mAutoHideMenu", mAutoHideMenu);
+        mShowFps      = options.get("MogwaiSettings:mShowFps", mShowFps);
+        mShowGraphUI  = options.get("MogwaiSettings:mShowGraphUI", mShowGraphUI);
+        mShowConsole  = options.get("MogwaiSettings:mShowConsole", mShowConsole);
+        mShowTime     = options.get("MogwaiSettings:mShowTime", mShowTime);
+        mShowWinSize  = options.get("MogwaiSettings:mShowWinSize", mShowWinSize);
     }
 
     MogwaiSettings::UniquePtr MogwaiSettings::create(Renderer* pRenderer)

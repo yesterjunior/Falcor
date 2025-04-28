@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -53,6 +53,7 @@ public:
 
     PathTracer(ref<Device> pDevice, const Properties& props);
 
+    virtual void setProperties(const Properties& props) override;
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -63,6 +64,8 @@ public:
 
     PixelStats& getPixelStats() { return *mpPixelStats; }
 
+    void reset();
+
     static void registerBindings(pybind11::module& m);
 
 private:
@@ -70,16 +73,24 @@ private:
     {
         std::string name;
         std::string passDefine;
-        ref<RtProgram> pProgram;
+        ref<Program> pProgram;
         ref<RtBindingTable> pBindingTable;
         ref<RtProgramVars> pVars;
 
-        TracePass(ref<Device> pDevice, const std::string& name, const std::string& passDefine, const ref<Scene>& pScene, const DefineList& defines, const Program::TypeConformanceList& globalTypeConformances);
+        TracePass(ref<Device> pDevice, const std::string& name, const std::string& passDefine, const ref<Scene>& pScene, const DefineList& defines, const TypeConformanceList& globalTypeConformances);
+        static std::unique_ptr<TracePass> create(ref<Device> pDevice, const std::string& name, const std::string& passDefine, const ref<IScene>& pScene, const DefineList& defines, const TypeConformanceList& globalTypeConformances)
+        {
+            if (auto scene = dynamic_ref_cast<Scene>(pScene))
+                return std::make_unique<TracePass>(std::move(pDevice), name, passDefine, std::move(scene), defines, globalTypeConformances);
+            return {};
+        }
+
         void prepareProgram(ref<Device> pDevice, const DefineList& defines);
     };
 
     void parseProperties(const Properties& props);
     void validateOptions();
+    void resetPrograms();
     void updatePrograms();
     void setFrameDim(const uint2 frameDim);
     void prepareResources(RenderContext* pRenderContext, const RenderData& renderData);
@@ -89,7 +100,7 @@ private:
     bool prepareLighting(RenderContext* pRenderContext);
     void prepareRTXDI(RenderContext* pRenderContext);
     void setNRDData(const ShaderVar& var, const RenderData& renderData) const;
-    void setShaderData(const ShaderVar& var, const RenderData& renderData, bool useLightSampling = true) const;
+    void bindShaderData(const ShaderVar& var, const RenderData& renderData, bool useLightSampling = true) const;
     bool renderRenderingUI(Gui::Widgets& widget);
     bool renderDebugUI(Gui::Widgets& widget);
     void renderStatsUI(Gui::Widgets& widget);
@@ -129,6 +140,9 @@ private:
         bool        disableCaustics = false;                    ///< Disable sampling of caustics.
         TexLODMode  primaryLodMode = TexLODMode::Mip0;          ///< Use filtered texture lookups at the primary hit.
 
+        // Scheduling parameters
+        bool        useSER = true;                              ///< Enable SER (Shader Execution Reordering).
+
         // Output parameters
         ColorFormat colorFormat = ColorFormat::LogLuvHDR;       ///< Color format used for internal per-sample color and denoiser buffers.
 
@@ -148,14 +162,20 @@ private:
     RenderPassHelpers::IOSize       mOutputSizeSelection = RenderPassHelpers::IOSize::Default;  ///< Selected output size.
     uint2                           mFixedOutputSize = { 512, 512 };                            ///< Output size in pixels when 'Fixed' size is selected.
 
+    bool                            mSERSupported = false;      ///< True if the device supports SER.
+
     // Internal state
-    ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded.
+    ref<IScene>                     mpScene;                    ///< The current scene, or nullptr if no scene loaded.
     ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator.
     std::unique_ptr<EnvMapSampler>  mpEnvMapSampler;            ///< Environment map sampler or nullptr if not used.
     std::unique_ptr<EmissiveLightSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used.
     std::unique_ptr<RTXDI>          mpRTXDI;                    ///< RTXDI sampler for direct illumination or nullptr if not used.
     std::unique_ptr<PixelStats>     mpPixelStats;               ///< Utility class for collecting pixel stats.
     std::unique_ptr<PixelDebug>     mpPixelDebug;               ///< Utility class for pixel debugging (print in shaders).
+
+    sigs::Connection                mUpdateFlagsConnection; ///< Connection to the UpdateFlags signal.
+    /// SceneUpdateFlags accumulated since last `beginFrame()`
+    IScene::UpdateFlags             mUpdateFlags = IScene::UpdateFlags::None;
 
     ref<ParameterBlock>             mpPathTracerBlock;          ///< Parameter block for the path tracer.
 

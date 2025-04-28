@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -70,10 +70,11 @@ public:
     /**
      * Create a render graph from loading a python render graph script.
      * @param[in] pDevice GPU device.
-     * @param[in] path Path to the script.
+     * @param[in] path Path to the script (absolute or relative to working directory).
      * @return New object, or throws an exception if creation failed.
      */
     static ref<RenderGraph> createFromFile(ref<Device> pDevice, const std::filesystem::path& path);
+    static ref<RenderGraph> createFromString(ref<Device> pDevice, const std::string_view script);
 
     /**
      * Return the associated GPU device.
@@ -256,11 +257,16 @@ public:
     void renderUI(RenderContext* pRenderContext, Gui::Widgets& widget);
 
     /**
+     * Render the graph overlay UI (meant for rasterizing lines, boxes, etc, independent of the widget).
+     */
+    void renderOverlayUI(RenderContext* pRenderContext);
+
+    /**
      * Called upon scene updates.
      * @param[in] pRenderContext The render context.
      * @param[in] sceneUpdates Accumulated scene update flags.
      */
-    void onSceneUpdates(RenderContext* pRenderContext, Scene::UpdateFlags sceneUpdates);
+    void onSceneUpdates(RenderContext* pRenderContext, IScene::UpdateFlags sceneUpdates);
 
     /**
      * Mouse event handler.
@@ -283,7 +289,7 @@ public:
     /**
      * Get the dictionary objects used to communicate app data to the render passes.
      */
-    InternalDictionary& getPassesDictionary() { return mPassesDictionary; }
+    Dictionary& getPassesDictionary() { return mPassesDictionary; }
 
     /**
      * Get the graph name.
@@ -368,7 +374,7 @@ private:
     std::unordered_map<uint32_t, NodeData> mNodeData; ///< Map from node ID to render pass name and ptr.
     std::vector<GraphOut> mOutputs; ///< Array of all outputs marked as graph outputs. GRAPH_TODO should this be an unordered set?
 
-    InternalDictionary mPassesDictionary;            ///< Dictionary used to communicate between passes.
+    Dictionary mPassesDictionary;                    ///< Dictionary used to communicate between passes.
     std::unique_ptr<RenderGraphExe> mpExe;           ///< Helper for allocating resources and executing the graph.
     RenderGraphCompiler::Dependencies mCompilerDeps; ///< Data needed by the graph compiler.
     bool mRecompile = false; ///< Set to true to trigger a recompilation after any graph changes (topology/scene/size/passes/etc.)

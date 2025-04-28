@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -29,12 +29,13 @@
 #include "Mogwai.h"
 #include "MogwaiSettings.h"
 #include "GlobalState.h"
+#include "Core/AssetResolver.h"
 #include "Scene/Importer.h"
 #include "RenderGraph/RenderGraphImportExport.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
 #include "Utils/Scripting/Scripting.h"
 #include "Utils/Timing/TimeReport.h"
-#include "Utils/Settings.h"
+#include "Utils/Settings/Settings.h"
 
 #include <args.hxx>
 
@@ -77,7 +78,7 @@ namespace Mogwai
         if (!gExtensions) gExtensions.reset(new std::map<std::string, Extension::CreateFunc>());
         if (gExtensions->find(name) != gExtensions->end())
         {
-            throw RuntimeError("Extension '{}' is already registered.", name);
+            FALCOR_THROW("Extension '{}' is already registered.", name);
         }
         (*gExtensions)[name] = func;
     }
@@ -85,7 +86,7 @@ namespace Mogwai
     void Renderer::onShutdown()
     {
         resetEditor();
-        getDevice()->flushAndSync(); // Need to do that because clearing the graphs will try to release some state objects which might be in use
+        getDevice()->wait(); // Need to do that because clearing the graphs will try to release some state objects which might be in use
         mGraphs.clear();
         if (mPipedOutput)
         {
@@ -134,8 +135,6 @@ namespace Mogwai
             // Add scene to recent files only if not in silent mode (which is used during image tests).
             if (!mOptions.silentMode) mAppData.addRecentScene(mOptions.sceneFile);
         }
-
-        Scene::nullTracePass(pRenderContext, uint2(1024));
     }
 
     void Renderer::onOptionsChange()
@@ -231,7 +230,11 @@ namespace Mogwai
         // Get the current output, in case `renderOutputUI()` unmarks it
         ref<Texture> pTex = mGraphs[mActiveGraph].pGraph->getOutput(data.currentOutput)->asTexture();
         std::string label = data.currentOutput + "##" + mGraphs[mActiveGraph].pGraph->getName();
-        if (!pTex) { reportError("Invalid output resource. Is not a texture."); }
+        if (!pTex)
+        {
+            logWarning("Invalid output resource. Is not a texture. Closing window.");
+            return false;
+        }
 
         uint2 debugSize = (uint2)(float2(winSize) * float2(0.4f, 0.55f));
         uint2 debugPos = winSize - debugSize;
@@ -382,8 +385,8 @@ namespace Mogwai
     void Renderer::removeGraph(const std::string& graphName)
     {
         auto pGraph = getGraph(graphName);
-        if (pGraph) removeGraph(pGraph);
-        else reportError("Can't find a graph named '" + graphName + "'. There's nothing to remove.");
+        FALCOR_CHECK(pGraph, "Can't find a graph named '{}'.", graphName);
+        removeGraph(pGraph);
     }
 
     ref<RenderGraph> Renderer::getGraph(const std::string& graphName) const
@@ -456,19 +459,26 @@ namespace Mogwai
 
         try
         {
-            if (getProgressBar().isActive()) getProgressBar().show("Loading Configuration");
+            if (getProgressBar().isActive())
+                getProgressBar().show("Loading Configuration");
 
             // Add script directory to search paths (add it to the front to make it highest priority).
+            AssetResolver oldResolver = AssetResolver::getDefaultResolver();
             auto directory = std::filesystem::absolute(path).parent_path();
-            addDataDirectory(directory, true);
+            AssetResolver::getDefaultResolver().addSearchPath(directory, SearchPathPriority::First);
 
             Scripting::runScriptFromFile(path);
 
-            removeDataDirectory(directory);
+            // Restore asset resolver.
+            AssetResolver::getDefaultResolver() = oldResolver;
         }
         catch (const std::exception& e)
         {
-            reportError(fmt::format("Error when loading configuration file: {}\n{}", path, e.what()));
+            std::string msg = fmt::format("Error when loading configuration file: {}\n{}", path, e.what());
+            if (is_set(getErrorDiagnosticFlags(), ErrorDiagnosticFlags::ShowMessageBoxOnError))
+                reportErrorAndContinue(msg);
+            else
+                FALCOR_THROW(msg);
         }
     }
 
@@ -484,11 +494,7 @@ namespace Mogwai
 
     void Renderer::addGraph(const ref<RenderGraph>& pGraph)
     {
-        if (pGraph == nullptr)
-        {
-            reportError("Can't add an empty graph");
-            return;
-        }
+        FALCOR_CHECK(pGraph, "Can't add an empty graph");
 
         // If a graph with the same name already exists, remove it
         GraphData* pGraphData = nullptr;
@@ -544,7 +550,16 @@ namespace Mogwai
             }
             catch (const ImporterError &e)
             {
-                reportErrorAndAllowRetry(fmt::format("Failed to load scene.\n\nError in {}\n\n{}", e.path(), e.what()));
+                std::string msg = fmt::format("Failed to load scene.\n\nError in {}\n\n{}", e.path(), e.what());
+                if (is_set(getErrorDiagnosticFlags(), ErrorDiagnosticFlags::ShowMessageBoxOnError))
+                {
+                    if (reportErrorAndAllowRetry(msg))
+                        continue;
+                    else
+                        break;
+                } else {
+                    FALCOR_THROW(msg);
+                }
             }
         }
     }
@@ -568,17 +583,17 @@ namespace Mogwai
             {
                 // create common texture sampler
                 Sampler::Desc desc;
-                desc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
+                desc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear);
                 desc.setMaxAnisotropy(8);
-                mpSampler = Sampler::create(getDevice(), desc);
+                mpSampler = getDevice()->createSampler(desc);
             }
-            mpScene->getMaterialSystem().setDefaultTextureSampler(mpSampler);
+            mpScene->setDefaultTextureSampler(mpSampler);
         }
 
         for (auto& g : mGraphs)
         {
             g.pGraph->setScene(mpScene);
-            g.sceneUpdates = Scene::UpdateFlags::None;
+            g.sceneUpdates = IScene::UpdateFlags::None;
         }
         getGlobalClock().setTime(0);
     }
@@ -631,10 +646,10 @@ namespace Mogwai
         auto& pGraph = data.pGraph;
 
         // Notify active graph of any scene updates.
-        if (data.sceneUpdates != Scene::UpdateFlags::None)
+        if (data.sceneUpdates != IScene::UpdateFlags::None)
         {
             pGraph->onSceneUpdates(pRenderContext, data.sceneUpdates);
-            data.sceneUpdates = Scene::UpdateFlags::None;
+            data.sceneUpdates = IScene::UpdateFlags::None;
         }
 
         // Execute graph.
@@ -678,6 +693,9 @@ namespace Mogwai
         if (mActiveGraph < mGraphs.size())
         {
             auto& pGraph = mGraphs[mActiveGraph].pGraph;
+
+            if (mSceneUpdateCallback)
+                mSceneUpdateCallback(mpScene, getGlobalClock().getTime());
 
             // Update scene and camera.
             if (mpScene)
@@ -808,7 +826,7 @@ namespace Mogwai
     }
 }
 
-int main(int argc, char** argv)
+int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("Mogwai render application.");
     parser.helpParams.programName = "Mogwai";
@@ -832,6 +850,8 @@ int main(int argc, char** argv)
     args::Flag generateShaderDebugInfoFlag(parser, "", "Generate shader debug info.", {"debug-shaders"});
     args::Flag enableDebugLayerFlag(parser, "", "Enable debug layer (enabled by default in Debug build).", {"enable-debug-layer"});
     args::Flag preciseProgramFlag(parser, "", "Force all slang programs to run in precise mode", { "precise" });
+    args::ValueFlag<std::string> attributesFlag(parser, "path", "JSON attributes file.", { 'a', "attributes" });
+    args::Flag rayTracingValidationFlag(parser, "", "Enable ray tracing validation (requires env-var NV_ALLOW_RAYTRACING_VALIDATION=1)", {"enable-raytracing-validation"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
 
@@ -878,6 +898,16 @@ int main(int argc, char** argv)
         Logger::setLogFilePath(logfile);
     }
 
+    if (attributesFlag)
+    {
+        std::filesystem::path attributesPath(args::get(attributesFlag));
+        if (!Settings::getGlobalSettings().addFilteredAttributes(attributesPath))
+        {
+            std::cerr << "Failed to load attributes file '" << attributesPath.string() << "'." << std::endl;
+            return 1;
+        }
+    }
+
     SampleAppConfig config;
     if (deviceTypeFlag)
     {
@@ -910,6 +940,8 @@ int main(int argc, char** argv)
         config.generateShaderDebugInfo = true;
     if (preciseProgramFlag)
         config.shaderPreciseFloat = true;
+    if (rayTracingValidationFlag)
+        config.deviceDesc.enableRaytracingValidation = true;
 
     config.windowDesc.title = "Mogwai";
     if (widthFlag)
@@ -932,15 +964,11 @@ int main(int argc, char** argv)
     if (useSceneCacheFlag) options.useSceneCache = true;
     if (rebuildSceneCacheFlag) options.rebuildSceneCache = true;
 
-    try
-    {
-        Mogwai::Renderer renderer(config, options);
-        return renderer.run();
-    }
-    catch (const std::exception& e)
-    {
-        // Note: This can only trigger from the setup code above. SampleApp::run() handles all exceptions internally.
-        reportFatalError("Mogwai crashed unexpectedly...\n" + std::string(e.what()), false);
-    }
-    return 1;
+    Mogwai::Renderer renderer(config, options);
+    return renderer.run();
+}
+
+int main(int argc, char** argv)
+{
+    return catchAndReportAllExceptions([&]() { return runMain(argc, argv); });
 }

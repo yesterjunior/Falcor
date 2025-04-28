@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -32,38 +32,39 @@
 
 namespace
 {
-    const std::string kProgramRaytraceFile = "RenderPasses/GBuffer/VBuffer/VBufferRT.rt.slang";
-    const std::string kProgramComputeFile = "RenderPasses/GBuffer/VBuffer/VBufferRT.cs.slang";
+const std::string kProgramRaytraceFile = "RenderPasses/GBuffer/VBuffer/VBufferRT.rt.slang";
+const std::string kProgramComputeFile = "RenderPasses/GBuffer/VBuffer/VBufferRT.cs.slang";
 
-    // Scripting options.
-    const char kUseTraceRayInline[] = "useTraceRayInline";
-    const char kUseDOF[] = "useDOF";
+// Scripting options.
+const char kUseTraceRayInline[] = "useTraceRayInline";
+const char kUseDOF[] = "useDOF";
 
-    // Ray tracing settings that affect the traversal stack size. Set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 4; // TODO: The shader doesn't need a payload, set this to zero if it's possible to pass a null payload to TraceRay()
-    const uint32_t kMaxRecursionDepth = 1;
+// Ray tracing settings that affect the traversal stack size. Set as small as possible.
+// TODO: The shader doesn't need a payload, set this to zero if it's possible to pass a null payload to TraceRay()
+const uint32_t kMaxPayloadSizeBytes = 4;
+const uint32_t kMaxRecursionDepth = 1;
 
-    const std::string kVBufferName = "vbuffer";
-    const std::string kVBufferDesc = "V-buffer in packed format (indices + barycentrics)";
+const std::string kVBufferName = "vbuffer";
+const std::string kVBufferDesc = "V-buffer in packed format (indices + barycentrics)";
 
-    // Additional output channels.
-    const ChannelList kVBufferExtraChannels =
-    {
-        { "depth",          "gDepth",           "Depth buffer (NDC)",               true /* optional */, ResourceFormat::R32Float    },
-        { "mvec",           "gMotionVector",    "Motion vector",                    true /* optional */, ResourceFormat::RG32Float   },
-        { "viewW",          "gViewW",           "View direction in world space",    true /* optional */, ResourceFormat::RGBA32Float }, // TODO: Switch to packed 2x16-bit snorm format.
-        { "time",           "gTime",            "Per-pixel execution time",         true /* optional */, ResourceFormat::R32Uint     },
-        { "mask",           "gMask",            "Mask",                             true /* optional */, ResourceFormat::R32Float    },
-    };
+// Additional output channels.
+const ChannelList kVBufferExtraChannels = {
+    // clang-format off
+    { "depth",          "gDepth",           "Depth buffer (NDC)",               true /* optional */, ResourceFormat::R32Float    },
+    { "mvec",           "gMotionVector",    "Motion vector",                    true /* optional */, ResourceFormat::RG32Float   },
+    { "viewW",          "gViewW",           "View direction in world space",    true /* optional */, ResourceFormat::RGBA32Float }, // TODO: Switch to packed 2x16-bit snorm format.
+    { "time",           "gTime",            "Per-pixel execution time",         true /* optional */, ResourceFormat::R32Uint     },
+    { "mask",           "gMask",            "Mask",                             true /* optional */, ResourceFormat::R32Float    },
+    // clang-format on
 };
+}; // namespace
 
-VBufferRT::VBufferRT(ref<Device> pDevice, const Properties& props)
-    : GBufferBase(pDevice)
+VBufferRT::VBufferRT(ref<Device> pDevice, const Properties& props) : GBufferBase(pDevice)
 {
+    if (!mpDevice->isShaderModelSupported(ShaderModel::SM6_5))
+        FALCOR_THROW("VBufferRT requires Shader Model 6.5 support.");
     if (!mpDevice->isFeatureSupported(Device::SupportedFeatures::RaytracingTier1_1))
-    {
-        throw RuntimeError("VBufferRT: Raytracing Tier 1.1 is not supported by the current device");
-    }
+        FALCOR_THROW("VBufferRT requires Raytracing Tier 1.1 support.");
 
     parseProperties(props);
 
@@ -77,7 +78,10 @@ RenderPassReflection VBufferRT::reflect(const CompileData& compileData)
     const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mFixedOutputSize, compileData.defaultTexDims);
 
     // Add the required output. This always exists.
-    reflector.addOutput(kVBufferName, kVBufferDesc).bindFlags(Resource::BindFlags::UnorderedAccess).format(mVBufferFormat).texture2D(sz.x, sz.y);
+    reflector.addOutput(kVBufferName, kVBufferDesc)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(mVBufferFormat)
+        .texture2D(sz.x, sz.y);
 
     // Add all the other outputs.
     addRenderPassOutputs(reflector, kVBufferExtraChannels, ResourceBindFlags::UnorderedAccess, sz);
@@ -94,32 +98,33 @@ void VBufferRT::execute(RenderContext* pRenderContext, const RenderData& renderD
     FALCOR_ASSERT(pOutput);
     updateFrameDim(uint2(pOutput->getWidth(), pOutput->getHeight()));
 
-    // If there is no scene, clear the output and return.
-    if (mpScene == nullptr)
+    if (mpScene)
+    {
+        // Check for scene changes.
+        if (is_set(mUpdateFlags, IScene::UpdateFlags::RecompileNeeded) || is_set(mUpdateFlags, IScene::UpdateFlags::GeometryChanged) ||
+            is_set(mUpdateFlags, IScene::UpdateFlags::SDFGridConfigChanged))
+        {
+            recreatePrograms();
+        }
+
+        // Configure depth-of-field.
+        // When DOF is enabled, two PRNG dimensions are used. Pass this info to subsequent passes via the dictionary.
+        mComputeDOF = mUseDOF && mpScene->getCamera()->getApertureRadius() > 0.f;
+        if (mUseDOF)
+        {
+            renderData.getDictionary()[Falcor::kRenderPassPRNGDimension] = mComputeDOF ? 2u : 0u;
+        }
+
+        mUseTraceRayInline ? executeCompute(pRenderContext, renderData) : executeRaytrace(pRenderContext, renderData);
+        mUpdateFlags = IScene::UpdateFlags::None;
+        mFrameCount++;
+    }
+    else // If there is no scene, clear the output and return.
     {
         pRenderContext->clearUAV(pOutput->getUAV().get(), uint4(0));
         clearRenderPassChannels(pRenderContext, kVBufferExtraChannels, renderData);
         return;
     }
-
-    // Check for scene changes.
-    if (is_set(mpScene->getUpdates(), Scene::UpdateFlags::GeometryChanged) ||
-        is_set(mpScene->getUpdates(), Scene::UpdateFlags::SDFGridConfigChanged))
-    {
-        recreatePrograms();
-    }
-
-    // Configure depth-of-field.
-    // When DOF is enabled, two PRNG dimensions are used. Pass this info to subsequent passes via the dictionary.
-    mComputeDOF = mUseDOF && mpScene->getCamera()->getApertureRadius() > 0.f;
-    if (mUseDOF)
-    {
-        renderData.getDictionary()[Falcor::kRenderPassPRNGDimension] = mComputeDOF ? 2u : 0u;
-    }
-
-    mUseTraceRayInline ? executeCompute(pRenderContext, renderData) : executeRaytrace(pRenderContext, renderData);
-
-    mFrameCount++;
 }
 
 void VBufferRT::renderUI(Gui::Widgets& widget)
@@ -135,7 +140,11 @@ void VBufferRT::renderUI(Gui::Widgets& widget)
     {
         mOptionsChanged = true;
     }
-    widget.tooltip("This option enables stochastic depth-of-field when the camera's aperture radius is nonzero. Disable it to force the use of a pinhole camera.", true);
+    widget.tooltip(
+        "This option enables stochastic depth-of-field when the camera's aperture radius is nonzero. "
+        "Disable it to force the use of a pinhole camera.",
+        true
+    );
 }
 
 Properties VBufferRT::getProperties() const
@@ -146,6 +155,7 @@ Properties VBufferRT::getProperties() const
 
     return props;
 }
+
 
 void VBufferRT::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
@@ -160,8 +170,10 @@ void VBufferRT::parseProperties(const Properties& props)
 
     for (const auto& [key, value] : props)
     {
-        if (key == kUseTraceRayInline) mUseTraceRayInline = value;
-        else if (key == kUseDOF) mUseDOF = value;
+        if (key == kUseTraceRayInline)
+            mUseTraceRayInline = value;
+        else if (key == kUseDOF)
+            mUseDOF = value;
         // TODO: Check for unparsed fields, including those parsed in base classes.
     }
 }
@@ -183,7 +195,7 @@ void VBufferRT::executeRaytrace(RenderContext* pRenderContext, const RenderData&
         defines.add(getShaderDefines(renderData));
 
         // Create ray tracing program.
-        RtProgram::Desc desc;
+        ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kProgramRaytraceFile);
         desc.addTypeConformances(mpScene->getTypeConformances());
@@ -199,33 +211,41 @@ void VBufferRT::executeRaytrace(RenderContext* pRenderContext, const RenderData&
         // Add hit group with intersection shader for triangle meshes with displacement maps.
         if (mpScene->hasGeometryType(Scene::GeometryType::DisplacedTriangleMesh))
         {
-            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::DisplacedTriangleMesh), desc.addHitGroup("displacedTriangleMeshClosestHit", "", "displacedTriangleMeshIntersection"));
+            sbt->setHitGroup(
+                0,
+                mpScene->getGeometryIDs(Scene::GeometryType::DisplacedTriangleMesh),
+                desc.addHitGroup("displacedTriangleMeshClosestHit", "", "displacedTriangleMeshIntersection")
+            );
         }
 
         // Add hit group with intersection shader for curves (represented as linear swept spheres).
         if (mpScene->hasGeometryType(Scene::GeometryType::Curve))
         {
-            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::Curve), desc.addHitGroup("curveClosestHit", "", "curveIntersection"));
+            sbt->setHitGroup(
+                0, mpScene->getGeometryIDs(Scene::GeometryType::Curve), desc.addHitGroup("curveClosestHit", "", "curveIntersection")
+            );
         }
 
         // Add hit group with intersection shader for SDF grids.
         if (mpScene->hasGeometryType(Scene::GeometryType::SDFGrid))
         {
-            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::SDFGrid), desc.addHitGroup("sdfGridClosestHit", "", "sdfGridIntersection"));
+            sbt->setHitGroup(
+                0, mpScene->getGeometryIDs(Scene::GeometryType::SDFGrid), desc.addHitGroup("sdfGridClosestHit", "", "sdfGridIntersection")
+            );
         }
 
-        mRaytrace.pProgram = RtProgram::create(mpDevice, desc, defines);
+        mRaytrace.pProgram = Program::create(mpDevice, desc, defines);
         mRaytrace.pVars = RtProgramVars::create(mpDevice, mRaytrace.pProgram, sbt);
 
         // Bind static resources.
         ShaderVar var = mRaytrace.pVars->getRootVar();
-        mpSampleGenerator->setShaderData(var);
+        mpSampleGenerator->bindShaderData(var);
     }
 
     mRaytrace.pProgram->addDefines(getShaderDefines(renderData));
 
     ShaderVar var = mRaytrace.pVars->getRootVar();
-    setShaderData(var, renderData);
+    bindShaderData(var, renderData);
 
     // Dispatch the rays.
     mpScene->raytrace(pRenderContext, mRaytrace.pProgram.get(), mRaytrace.pVars, uint3(mFrameDim, 1));
@@ -236,9 +256,9 @@ void VBufferRT::executeCompute(RenderContext* pRenderContext, const RenderData& 
     // Create compute pass.
     if (!mpComputePass)
     {
-    	Program::Desc desc;
+        ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-    	desc.addShaderLibrary(kProgramComputeFile).csEntry("main").setShaderModel("6_5");
+        desc.addShaderLibrary(kProgramComputeFile).csEntry("main");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
@@ -246,21 +266,22 @@ void VBufferRT::executeCompute(RenderContext* pRenderContext, const RenderData& 
         defines.add(mpSampleGenerator->getDefines());
         defines.add(getShaderDefines(renderData));
 
-    	mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
+        mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
 
         // Bind static resources
         ShaderVar var = mpComputePass->getRootVar();
-        mpScene->setRaytracingShaderData(pRenderContext, var);
-        mpSampleGenerator->setShaderData(var);
+        mpScene->bindShaderDataForRaytracing(pRenderContext, var["gScene"]);
+        mpSampleGenerator->bindShaderData(var);
     }
 
     mpComputePass->getProgram()->addDefines(getShaderDefines(renderData));
 
     ShaderVar var = mpComputePass->getRootVar();
-    setShaderData(var, renderData);
+    bindShaderData(var, renderData);
 
     mpComputePass->execute(pRenderContext, uint3(mFrameDim, 1));
 }
+
 
 DefineList VBufferRT::getShaderDefines(const RenderData& renderData) const
 {
@@ -270,8 +291,10 @@ DefineList VBufferRT::getShaderDefines(const RenderData& renderData) const
 
     // Setup ray flags.
     RayFlags rayFlags = RayFlags::None;
-    if (mForceCullMode && mCullMode == RasterizerState::CullMode::Front) rayFlags = RayFlags::CullFrontFacingTriangles;
-    else if (mForceCullMode && mCullMode == RasterizerState::CullMode::Back) rayFlags = RayFlags::CullBackFacingTriangles;
+    if (mForceCullMode && mCullMode == RasterizerState::CullMode::Front)
+        rayFlags = RayFlags::CullFrontFacingTriangles;
+    else if (mForceCullMode && mCullMode == RasterizerState::CullMode::Back)
+        rayFlags = RayFlags::CullBackFacingTriangles;
     defines.add("RAY_FLAGS", std::to_string((uint32_t)rayFlags));
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -280,7 +303,7 @@ DefineList VBufferRT::getShaderDefines(const RenderData& renderData) const
     return defines;
 }
 
-void VBufferRT::setShaderData(const ShaderVar& var, const RenderData& renderData)
+void VBufferRT::bindShaderData(const ShaderVar& var, const RenderData& renderData)
 {
     var["gVBufferRT"]["frameDim"] = mFrameDim;
     var["gVBufferRT"]["frameCount"] = mFrameCount;
@@ -294,5 +317,6 @@ void VBufferRT::setShaderData(const ShaderVar& var, const RenderData& renderData
         ref<Texture> pTex = getOutput(renderData, channel.name);
         var[channel.texname] = pTex;
     };
-    for (const auto& channel : kVBufferExtraChannels) bind(channel);
+    for (const auto& channel : kVBufferExtraChannels)
+        bind(channel);
 }

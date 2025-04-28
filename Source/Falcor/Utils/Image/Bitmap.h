@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -48,6 +48,13 @@ public:
         ExportAlpha = 1u << 0,  //< Save alpha channel as well
         Lossy = 1u << 1,        //< Try to store in a lossy format
         Uncompressed = 1u << 2, //< Prefer faster load to a more compact file size
+        ExrFloat16 = 1u << 3,   //< Use half-float instead of float when writing EXRs
+    };
+
+    enum class ImportFlags : uint32_t
+    {
+        None = 0u,                  ///< Default.
+        ConvertToFloat16 = 1u << 0, ///< Convert HDR images to 16-bit float per channel on import.
     };
 
     enum class FileFormat
@@ -57,7 +64,7 @@ public:
         TgaFile,  //< TGA file for lossless uncompressed 8-bits images with optional alpha
         BmpFile,  //< BMP file for lossless uncompressed 8-bits images with optional alpha
         PfmFile,  //< PFM file for floating point HDR images with 32-bit float per channel
-        ExrFile,  //< EXR file for floating point HDR images with 16-bit float per channel
+        ExrFile,  //< EXR file for floating point HDR images with 16/32-bit float per channel
         DdsFile,  //< DDS file for storing GPU resource formats, including block compressed formats
                   //< See ImageIO. TODO: Remove(?) Bitmap IO implementation when ImageIO supports other formats
     };
@@ -77,13 +84,13 @@ public:
 
     /**
      * Create a new object from file.
-     * @param[in] path Path to load from. If the file can't be found relative to the current directory, Falcor will search for it in the
-     * common directories.
+     * @param[in] path Path to load from (absolute or relative to working directory).
      * @param[in] isTopDown Control the memory layout of the image. If true, the top-left pixel is the first pixel in the buffer, otherwise
      * the bottom-left pixel is first.
+     * @param[in] importFlags Flags to control how the file is imported. See ImportFlags above.
      * @return If loading was successful, a new object. Otherwise, nullptr.
      */
-    static UniqueConstPtr createFromFile(const std::filesystem::path& path, bool isTopDown);
+    static UniqueConstPtr createFromFile(const std::filesystem::path& path, bool isTopDown, ImportFlags importFlags = ImportFlags::None);
 
     /**
      * Store a memory buffer to a file.
@@ -130,7 +137,7 @@ public:
     uint32_t getRowPitch() const { return mRowPitch; }
 
     /// Get the data size in bytes
-    uint32_t getSize() const { return mSize; }
+    size_t getSize() const { return mSize; }
 
     /**
      * Get the file dialog filter vec for images.
@@ -156,12 +163,13 @@ protected:
     Bitmap(uint32_t width, uint32_t height, ResourceFormat format, const uint8_t* pData);
 
     std::unique_ptr<uint8_t[]> mpData;
-    uint32_t mWidth = 0;
-    uint32_t mHeight = 0;
-    uint32_t mRowPitch = 0;
-    uint32_t mSize = 0;
+    uint32_t mWidth = 0;    ///< Width in pixels.
+    uint32_t mHeight = 0;   ///< Height in pixels.
+    uint32_t mRowPitch = 0; ///< Row pitch in bytes.
+    size_t mSize = 0;       ///< Total size in bytes.
     ResourceFormat mFormat = ResourceFormat::Unknown;
 };
 
 FALCOR_ENUM_CLASS_OPERATORS(Bitmap::ExportFlags);
+FALCOR_ENUM_CLASS_OPERATORS(Bitmap::ImportFlags);
 } // namespace Falcor

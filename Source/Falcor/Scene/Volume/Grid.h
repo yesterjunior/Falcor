@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -67,7 +67,7 @@ namespace Falcor
             \param[in] blendRange Range in voxels to blend from 0 to 1 (starting at surface inwards).
             \return A new grid.
         */
-        static ref<Grid> createSphere(ref<Device> pDevice, float radius, float voxelSize, float blendRange = 2.f);
+        static ref<Grid> createSphere(ref<Device> pDevice, float radius, float voxelSize, float blendRange = 3.f);
 
         /** Create a box voxel grid.
             \param[in] pDevice GPU device.
@@ -78,12 +78,12 @@ namespace Falcor
             \param[in] blendRange Range in voxels to blend from 0 to 1 (starting at surface inwards).
             \return A new grid.
         */
-        static ref<Grid> createBox(ref<Device> pDevice, float width, float height, float depth, float voxelSize, float blendRange = 2.f);
+        static ref<Grid> createBox(ref<Device> pDevice, float width, float height, float depth, float voxelSize, float blendRange = 3.f);
 
         /** Create a grid from a file.
             Currently only OpenVDB and NanoVDB grids of type float are supported.
             \param[in] pDevice GPU device.
-            \param[in] path File path of the grid. Can also include a full path or relative path from a data directory.
+            \param[in] path File path of the grid (absolute or relative to working directory).
             \param[in] gridname Name of the grid to load.
             \return A new grid, or nullptr if the grid failed to load.
         */
@@ -96,7 +96,7 @@ namespace Falcor
         /** Bind the grid to a given shader var.
             \param[in] var The shader variable to set the data into.
         */
-        void setShaderData(const ShaderVar& var);
+        void bindShaderData(const ShaderVar& var);
 
         /** Get the minimum index stored in the grid.
         */

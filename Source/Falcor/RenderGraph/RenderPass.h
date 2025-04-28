@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@
 #include "Core/API/Texture.h"
 #include "Scene/Scene.h"
 #include "Utils/Properties.h"
-#include "Utils/InternalDictionary.h"
+#include "Utils/Dictionary.h"
 #include "Utils/Scripting/ScriptBindings.h"
 #include "Utils/UI/Gui.h"
 #include <functional>
@@ -75,7 +75,7 @@ public:
     /**
      * Get the global dictionary. You can use it to pass data between different passes
      */
-    InternalDictionary& getDictionary() const { return mDictionary; }
+    Dictionary& getDictionary() const { return mDictionary; }
 
     /**
      * Get the default dimensions used for Texture2Ds (when `0` is specified as the dimensions in `RenderPassReflection`)
@@ -91,14 +91,14 @@ protected:
     RenderData(
         const std::string& passName,
         ResourceCache& resources,
-        InternalDictionary& dictionary,
+        Dictionary& dictionary,
         const uint2& defaultTexDims,
         ResourceFormat defaultTexFormat
     );
 
     const std::string& mName;
     ResourceCache& mResources;
-    InternalDictionary& mDictionary;
+    Dictionary& mDictionary;
     uint2 mDefaultTexDims;
     ResourceFormat mDefaultTexFormat;
 
@@ -200,6 +200,11 @@ public:
     virtual void renderUI(RenderContext* pRenderContext, Gui::Widgets& widget) { renderUI(widget); }
 
     /**
+     * Render the pass's Overlay UI. Use ImGui::GetBackgroundDrawList() to render.
+     */
+    virtual void renderOverlayUI(RenderContext* pRenderContext) {}
+
+    /**
      * Set a scene into the render pass.
      * This function is called when a new scene is loaded.
      * @param[in] pRenderContext The render context.
@@ -214,7 +219,7 @@ public:
      * @param[in] pRenderContext The render context.
      * @param[in] sceneUpdates Accumulated scene update flags since the last call, or since `setScene()` for a new scene.
      */
-    virtual void onSceneUpdates(RenderContext* pRenderContext, Scene::UpdateFlags sceneUpdates) {}
+    virtual void onSceneUpdates(RenderContext* pRenderContext, IScene::UpdateFlags sceneUpdates) {}
 
     /**
      * Mouse event handler.

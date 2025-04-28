@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -42,16 +42,20 @@ GPU_TEST(CastFloat16)
 {
     ref<Device> pDevice = ctx.getDevice();
 
-    ctx.createProgram("Tests/Slang/CastFloat16.cs.slang", "testCastFloat16", DefineList(), Program::CompilerFlags::None, "6_5");
+    ctx.createProgram("Tests/Slang/CastFloat16.cs.slang", "testCastFloat16", DefineList(), SlangCompilerFlags::None, ShaderModel::SM6_5);
     ctx.allocateStructuredBuffer("result", kNumElems);
 
     std::vector<uint16_t> elems(kNumElems * 2);
     for (auto& v : elems)
         v = f32tof16(float(u(r)));
     auto var = ctx.vars().getRootVar();
-    var["data"] = Buffer::createStructured(
-        pDevice, var["data"], (uint32_t)elems.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, elems.data()
+    auto buf = pDevice->createStructuredBuffer(
+        var["data"], (uint32_t)elems.size(), ResourceBindFlags::ShaderResource, MemoryType::DeviceLocal, elems.data()
     );
+    ASSERT_EQ(buf->getStructSize(), sizeof(float16_t));
+    ASSERT_EQ(buf->getElementCount(), elems.size());
+
+    var["data"] = buf;
 
     ctx.runProgram(kNumElems, 1, 1);
 

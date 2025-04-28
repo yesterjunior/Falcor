@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-22, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -43,11 +43,12 @@ namespace Mogwai
         bool keyboardEvent(const KeyboardEvent& e) override;
         bool gamepadEvent(const GamepadEvent& e) override;
 
-        void onOptionsChange(const SettingsProperties& settings) override;
+        void onOptionsChange(const Settings::Options& settings) override;
     private:
         MogwaiSettings(Renderer* pRenderer) : Extension(pRenderer, "Settings") {}
 
         void renderMainMenu(Gui* pGui);
+        void renderOverlay(Gui* pGui);
         void renderGraphs(Gui* pGui);
         void renderTimeSettings(Gui* pGui);
         void renderWindowSettings(Gui* pGui);
@@ -56,6 +57,7 @@ namespace Mogwai
 
         bool mAutoHideMenu = false;
         bool mShowFps = true;
+        bool mShowOverlayUI = true;
         bool mShowGraphUI = true;
         bool mShowConsole = false;
         bool mShowTime = false;

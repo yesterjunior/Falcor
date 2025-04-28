@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-22, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "Scene/SceneDefines.slangh"
-
 import Scene.Raytracing;
 import Scene.Intersection;
 import Scene.SDFs.SDFGridHitData;
@@ -36,8 +35,10 @@ ConstantBuffer<VBufferRT> gVBufferRT;
 
 struct RayData
 {
-    int dummy; // TODO: Passing in an empty payload struct doesn't work. Declare a dummy variable so that the compiler doesn't remove the declaration.
+    // TODO: Passing in an empty payload struct doesn't work. Declare a dummy variable so that the compiler doesn't remove the declaration.
+    int dummy;
 };
+
 
 //
 // Shader entry point for miss shader.
@@ -50,6 +51,7 @@ void miss(inout RayData rayData)
     uint2 launchIndex = DispatchRaysIndex().xy;
     gVBufferRT.writeMiss(launchIndex, WorldRayOrigin(), WorldRayDirection());
 }
+
 
 //
 // Shader entry points for TriangleMesh hit groups.
@@ -64,7 +66,8 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         GeometryInstanceID instanceID = getGeometryInstanceID();
         VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
         uint materialID = gScene.getMaterialID(instanceID);
-        if (gScene.materials.alphaTest(v, materialID, 0.f)) IgnoreHit();
+        if (gScene.materials.alphaTest(v, materialID, 0.f))
+            IgnoreHit();
     }
 }
 
@@ -188,7 +191,16 @@ void rayGen()
     // Trace ray
     const Ray ray = gVBufferRT.generateRay(launchIndex);
     RayData rayData;
-    TraceRay(gScene.rtAccel, VBufferRT::kRayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray.toRayDesc(), rayData);
+    TraceRay(
+        gScene.rtAccel,
+        VBufferRT::kRayFlags,
+        0xff /* instanceInclusionMask */,
+        0 /* hitIdx */,
+        getRayTypeCount(),
+        0 /* missIdx */,
+        ray.toRayDesc(),
+        rayData
+    );
 
     gVBufferRT.writeAux(launchIndex, ray);
 

@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -32,14 +32,17 @@ BEGIN_NAMESPACE_FALCOR
 
 enum class SceneDebuggerMode : uint32_t
 {
+    FlatShaded,
+    TriangleDensity,
     // Geometry
     HitType,
     InstanceID,
     MaterialID,
     GeometryID,
     BlasID,
-    InstancedGeometry,
     PrimitiveID,
+    InstancedGeometry,
+    MaterialType,
     // Shading data
     FaceNormal,
     ShadingNormal,
@@ -49,34 +52,65 @@ enum class SceneDebuggerMode : uint32_t
     BackfacingShadingNormal,
     TexCoords,
     // Material properties
-    GuideNormal,
-    Roughness,
-    FlatShaded,
+    BSDFProperties,
 };
 
-FALCOR_ENUM_INFO(SceneDebuggerMode, {
-    // Geometry
-    { SceneDebuggerMode::HitType, "HitType" },
-    { SceneDebuggerMode::InstanceID, "InstanceID" },
-    { SceneDebuggerMode::MaterialID, "MaterialID" },
-    { SceneDebuggerMode::GeometryID, "GeometryID" },
-    { SceneDebuggerMode::BlasID, "BlasID" },
-    { SceneDebuggerMode::InstancedGeometry, "InstancedGeometry" },
-    { SceneDebuggerMode::PrimitiveID, "PrimitiveID" },
-    // Shading data
-    { SceneDebuggerMode::FaceNormal, "FaceNormal" },
-    { SceneDebuggerMode::ShadingNormal, "ShadingNormal" },
-    { SceneDebuggerMode::ShadingTangent, "ShadingTangent" },
-    { SceneDebuggerMode::ShadingBitangent, "ShadingBitangent" },
-    { SceneDebuggerMode::FrontFacingFlag, "FrontFacingFlag" },
-    { SceneDebuggerMode::BackfacingShadingNormal, "BackfacingShadingNormal" },
-    { SceneDebuggerMode::TexCoords, "TexCoords" },
-    // Material properties
-    { SceneDebuggerMode::GuideNormal, "GuideNormal" },
-    { SceneDebuggerMode::Roughness, "Roughness" },
-    { SceneDebuggerMode::FlatShaded, "FlatShaded" },
-});
+FALCOR_ENUM_INFO(
+    SceneDebuggerMode,
+    {
+        { SceneDebuggerMode::FlatShaded, "FlatShaded" },
+        { SceneDebuggerMode::TriangleDensity, "TriangleDensity" },
+        // Geometry
+        { SceneDebuggerMode::HitType, "HitType" },
+        { SceneDebuggerMode::InstanceID, "InstanceID" },
+        { SceneDebuggerMode::MaterialID, "MaterialID" },
+        { SceneDebuggerMode::GeometryID, "GeometryID" },
+        { SceneDebuggerMode::BlasID, "BlasID" },
+        { SceneDebuggerMode::PrimitiveID, "PrimitiveID" },
+        { SceneDebuggerMode::InstancedGeometry, "InstancedGeometry" },
+        { SceneDebuggerMode::MaterialType, "MaterialType" },
+        // Shading data
+        { SceneDebuggerMode::FaceNormal, "FaceNormal" },
+        { SceneDebuggerMode::ShadingNormal, "ShadingNormal" },
+        { SceneDebuggerMode::ShadingTangent, "ShadingTangent" },
+        { SceneDebuggerMode::ShadingBitangent, "ShadingBitangent" },
+        { SceneDebuggerMode::FrontFacingFlag, "FrontFacingFlag" },
+        { SceneDebuggerMode::BackfacingShadingNormal, "BackfacingShadingNormal" },
+        { SceneDebuggerMode::TexCoords, "TexCoords" },
+        // Material properties
+        { SceneDebuggerMode::BSDFProperties, "BSDFProperties" },
+    }
+);
 FALCOR_ENUM_REGISTER(SceneDebuggerMode);
+
+enum class SceneDebuggerBSDFProperty : uint32_t
+{
+    Emission,
+    Roughness,
+    GuideNormal,
+    DiffuseReflectionAlbedo,
+    DiffuseTransmissionAlbedo,
+    SpecularReflectionAlbedo,
+    SpecularTransmissionAlbedo,
+    SpecularReflectance,
+    IsTransmissive,
+};
+
+FALCOR_ENUM_INFO(
+    SceneDebuggerBSDFProperty,
+    {
+        { SceneDebuggerBSDFProperty::Emission, "Emission" },
+        { SceneDebuggerBSDFProperty::Roughness, "Roughness" },
+        { SceneDebuggerBSDFProperty::GuideNormal, "GuideNormal" },
+        { SceneDebuggerBSDFProperty::DiffuseReflectionAlbedo, "DiffuseReflectionAlbedo" },
+        { SceneDebuggerBSDFProperty::DiffuseTransmissionAlbedo, "DiffuseTransmissionAlbedo" },
+        { SceneDebuggerBSDFProperty::SpecularReflectionAlbedo, "SpecularReflectionAlbedo" },
+        { SceneDebuggerBSDFProperty::SpecularTransmissionAlbedo, "SpecularTransmissionAlbedo" },
+        { SceneDebuggerBSDFProperty::SpecularReflectance, "SpecularReflectance" },
+        { SceneDebuggerBSDFProperty::IsTransmissive, "IsTransmissive" },
+    }
+);
+FALCOR_ENUM_REGISTER(SceneDebuggerBSDFProperty);
 
 struct SceneDebuggerParams
 {
@@ -84,13 +118,23 @@ struct SceneDebuggerParams
     uint2 frameDim = { 0, 0 };
     uint frameCount = 0;
 
+    uint bsdfProperty = 0; ///< Current BSDF property. See SceneDebuggerBSDFProperty.
+    uint bsdfIndex = 0;    ///< Current BSDF layer index.
+
     uint2 selectedPixel = { 0, 0 }; ///< The currently selected pixel for readback.
     int flipSign = false;           ///< Flip sign before visualization.
     int remapRange = true;          ///< Remap valid range to [0,1] before output.
     int clamp = true;               ///< Clamp pixel values to [0,1] before output.
 
     int showVolumes = true;         ///< Show volumes.
-    float densityScale = 1.f;       ///< Volume density scale factor.
+    float volumeDensityScale = 1.f; ///< Volume density scale factor.
+    int useVBuffer = false;
+
+    int profileSecondaryRays = false;       ///< Trace secondary rays for profiling purposes.
+    int profileSecondaryLoadHit = false;    ///< Load HitInfo for secondary rays, otherwise just visibility rays.
+    float profileSecondaryConeAngle = 90.f; ///< Cone angle (degress) for randomly distributed ray directions.
+
+    float2 triangleDensityLogRange = { -16.f, 16.f };
 };
 
 struct PixelData
@@ -124,7 +168,7 @@ enum class InstanceInfoFlags : uint32_t
 
 struct InstanceInfo
 {
-    uint flags = 0;                 ///< Flags as a combination of 'InstanceInfoFlags' flags.
+    uint flags = 0; ///< Flags as a combination of 'InstanceInfoFlags' flags.
 };
 
 END_NAMESPACE_FALCOR

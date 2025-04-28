@@ -27,6 +27,8 @@
  **************************************************************************/
 #include "MultiSampling.h"
 
+FALCOR_EXPORT_D3D12_AGILITY_SDK
+
 namespace
 {
 const uint32_t kTriangleCount = 16;
@@ -52,8 +54,8 @@ void MultiSampling::onLoad(RenderContext* pRenderContext)
         vertices[i * 3 + 1] = float2(cos(theta0), sin(theta0)) * 0.75f;
         vertices[i * 3 + 2] = float2(cos(theta1), sin(theta1)) * 0.75f;
     }
-    auto vertexBuffer = Buffer::createTyped<float2>(
-        getDevice(), kTriangleCount * 3, ResourceBindFlags::ShaderResource | ResourceBindFlags::Vertex, Buffer::CpuAccess::None, vertices
+    auto vertexBuffer = getDevice()->createTypedBuffer<float2>(
+        kTriangleCount * 3, ResourceBindFlags::ShaderResource | ResourceBindFlags::Vertex, MemoryType::DeviceLocal, vertices
     );
 
     // Create vertex layout
@@ -67,11 +69,12 @@ void MultiSampling::onLoad(RenderContext* pRenderContext)
 
     // Create FBO
     mpFbo = Fbo::create(getDevice());
-    ref<Texture> tex = Texture::create2DMS(
-        getDevice(), 128, 128, ResourceFormat::RGBA32Float, kSampleCount, 1,
-        Resource::BindFlags::ShaderResource | Resource::BindFlags::RenderTarget
+    ref<Texture> tex = getDevice()->createTexture2DMS(
+        128, 128, ResourceFormat::RGBA32Float, kSampleCount, 1, ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget
     );
     mpFbo->attachColorTarget(tex, 0);
+
+    mpResolvedTexture = getDevice()->createTexture2D(128, 128, ResourceFormat::RGBA32Float, 1, 1);
 }
 
 void MultiSampling::onFrameRender(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)
@@ -82,10 +85,20 @@ void MultiSampling::onFrameRender(RenderContext* pRenderContext, const ref<Fbo>&
     mpRasterPass->getState()->setVao(mpVao);
     mpRasterPass->draw(pRenderContext, kTriangleCount * 3, 0);
 
-    pRenderContext->blit(mpFbo->getColorTexture(0)->getSRV(), pTargetFbo->getRenderTargetView(0));
+    if (mFrame++ % 2 == 0)
+    {
+        // For even frames, resolve to texture and then blit.
+        pRenderContext->resolveResource(mpFbo->getColorTexture(0), mpResolvedTexture);
+        pRenderContext->blit(mpResolvedTexture->getSRV(), pTargetFbo->getRenderTargetView(0));
+    }
+    else
+    {
+        // For odd frames, blit directly.
+        pRenderContext->blit(mpFbo->getColorTexture(0)->getSRV(), pTargetFbo->getRenderTargetView(0));
+    }
 }
 
-int main(int argc, char** argv)
+int runMain(int argc, char** argv)
 {
     SampleAppConfig config;
     config.windowDesc.width = 1024;
@@ -96,4 +109,9 @@ int main(int argc, char** argv)
 
     MultiSampling multiSample(config);
     return multiSample.run();
+}
+
+int main(int argc, char** argv)
+{
+    return catchAndReportAllExceptions([&]() { return runMain(argc, argv); });
 }

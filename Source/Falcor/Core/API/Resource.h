@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -48,8 +48,6 @@ class FALCOR_API Resource : public Object
 {
     FALCOR_OBJECT(Resource)
 public:
-    using BindFlags = ResourceBindFlags;
-
     /**
      * Resource types. Notice there are no array types. Array are controlled using the array size parameter on texture creation.
      */
@@ -104,7 +102,7 @@ public:
     /**
      * Get the bind flags
      */
-    BindFlags getBindFlags() const { return mBindFlags; }
+    ResourceBindFlags getBindFlags() const { return mBindFlags; }
 
     bool isStateGlobal() const { return mState.isGlobal; }
 
@@ -149,7 +147,7 @@ public:
         {
             return ((std::hash<uint32_t>()(v.firstArraySlice) ^ (std::hash<uint32_t>()(v.arraySize) << 1)) >> 1) ^
                    (std::hash<uint32_t>()(v.mipCount) << 1) ^ (std::hash<uint32_t>()(v.mostDetailedMip) << 3) ^
-                   (std::hash<uint32_t>()(v.firstElement) << 5) ^ (std::hash<uint32_t>()(v.elementCount) << 7);
+                   (std::hash<uint32_t>()(v.offset) << 5) ^ (std::hash<uint32_t>()(v.size) << 7);
         }
     };
 
@@ -191,11 +189,11 @@ public:
 protected:
     friend class CopyContext;
 
-    Resource(ref<Device> pDevice, Type type, BindFlags bindFlags, uint64_t size);
+    Resource(ref<Device> pDevice, Type type, ResourceBindFlags bindFlags, uint64_t size);
 
     BreakableReference<Device> mpDevice;
     Type mType;
-    BindFlags mBindFlags;
+    ResourceBindFlags mBindFlags;
     struct
     {
         bool isGlobal = true;
@@ -207,7 +205,6 @@ protected:
     void setGlobalState(State newState) const;
 
     size_t mSize = 0; ///< Size of the resource in bytes.
-    GpuAddress mGpuVaOffset = 0;
     std::string mName;
     mutable SharedResourceApiHandle mSharedApiHandle = 0;
 

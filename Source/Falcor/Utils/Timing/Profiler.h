@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "CpuTimer.h"
 #include "Core/Macros.h"
 #include "Core/API/GpuTimer.h"
+#include "Core/API/Fence.h"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -81,6 +82,8 @@ public:
 
         Stats computeCpuTimeStats() const;
         Stats computeGpuTimeStats() const;
+
+        void resetStats();
 
     private:
         Event(const std::string& name);
@@ -155,6 +158,8 @@ public:
      * Constructor.
      */
     Profiler(ref<Device> pDevice);
+
+    const Device* getDevice() const { return mpDevice.get(); }
 
     /**
      * Check if the profiler is enabled.
@@ -234,6 +239,11 @@ public:
      */
     const std::vector<Event*>& getEvents() const { return mLastFrameEvents; }
 
+    /**
+     * Reset profiler stats at the next call to endFrame().
+     */
+    void resetStats();
+
     void breakStrongReferenceToDevice();
 
 private:
@@ -262,10 +272,11 @@ private:
     std::string mCurrentEventName;                                   ///< Current nested event name.
     uint32_t mCurrentLevel = 0;                                      ///< Current nesting level.
     uint32_t mFrameIndex = 0;                                        ///< Current frame index.
+    bool mPendingReset = false;                                      ///< Reset profiler stats at the next call to endFrame().
 
     std::shared_ptr<Capture> mpCapture; ///< Currently active capture.
 
-    ref<GpuFence> mpFence;
+    ref<Fence> mpFence;
     uint64_t mFenceValue = uint64_t(-1);
 };
 

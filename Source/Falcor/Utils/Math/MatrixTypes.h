@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -29,7 +29,7 @@
 
 #include "ScalarTypes.h"
 #include "VectorTypes.h"
-#include "Core/Assert.h"
+#include "Core/Error.h"
 
 #include <limits>
 
@@ -76,6 +76,7 @@ public:
     template<typename U>
     matrix(std::initializer_list<U> v)
     {
+        FALCOR_ASSERT(v.size() == RowCount * ColCount);
         T* f = &mRows[0][0];
         for (auto it = v.begin(); it != v.end(); ++it, ++f)
             *f = static_cast<T>(*it);

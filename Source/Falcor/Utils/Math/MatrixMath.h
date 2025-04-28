@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -38,7 +38,7 @@
 #include "Vector.h"
 #include "Quaternion.h"
 
-#include "Core/Assert.h"
+#include "Core/Error.h"
 
 #include <fmt/core.h>
 
@@ -59,6 +59,17 @@ template<typename T, int R, int C>
     for (int r = 0; r < R; ++r)
         for (int c = 0; c < C; ++c)
             result[r][c] = lhs[r][c] * rhs;
+    return result;
+}
+
+/// Binary * operator
+template<typename T, int R, int C>
+[[nodiscard]] matrix<T, R, C> operator+(const matrix<T, R, C>& lhs, const matrix<T, R, C>& rhs)
+{
+    matrix<T, R, C> result;
+    for (int r = 0; r < R; ++r)
+        for (int c = 0; c < C; ++c)
+            result[r][c] = lhs[r][c] + rhs[r][c];
     return result;
 }
 
@@ -121,7 +132,7 @@ template<typename T>
 // Functions
 // ----------------------------------------------------------------------------
 
-/// Tranpose a matrix.
+/// Transpose a matrix.
 template<typename T, int R, int C>
 matrix<T, C, R> transpose(const matrix<T, R, C>& m)
 {
@@ -230,8 +241,10 @@ template<typename T>
 {
     T oneOverDet = T(1) / determinant(m);
     return matrix<T, 2, 2>{
-        +m[1][1] * oneOverDet, -m[0][1] * oneOverDet, // row 0
-        -m[1][0] * oneOverDet, +m[0][0] * oneOverDet  // row 1
+        +m[1][1] * oneOverDet, // 0,0
+        -m[0][1] * oneOverDet, // 0,1
+        -m[1][0] * oneOverDet, // 1,0
+        +m[0][0] * oneOverDet, // 1,1
     };
 }
 

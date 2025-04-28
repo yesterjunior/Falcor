@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-21, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -31,10 +31,11 @@ import GBufferRT;
 ConstantBuffer<GBufferRT> gGBufferRT;
 
 [numthreads(16, 16, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint2 pixel = dispatchThreadId.xy;
-    if (any(pixel >= gGBufferRT.frameDim)) return;
+    if (any(pixel >= gGBufferRT.frameDim))
+        return;
 
     GpuTimer timer;
     gGBufferRT.beginTime(timer);
@@ -42,9 +43,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const Ray ray = gGBufferRT.generateRay(pixel);
 
     SceneRayQuery<GBufferRT::kUseAlphaTest> sceneRayQuery;
-    HitInfo hit;
     float hitT;
-    if (sceneRayQuery.traceRay(ray, hit, hitT, GBufferRT::kRayFlags, 0xff))
+    const HitInfo hit = sceneRayQuery.traceRay(ray, hitT, GBufferRT::kRayFlags);
+    if (hit.isValid())
     {
         gGBufferRT.writeHit(pixel, ray.origin, ray.dir, hit, hitT);
     }

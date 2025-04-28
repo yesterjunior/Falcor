@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ import Utils.Math.MathHelpers;
     By overriding the 'BCSDF' define it is possible to select a single-sided
     Lambertian diffuse BRDF for debugging purposes (see BCSDFConfig.slangh).
 */
-struct HairMaterialInstance : IMaterialInstance
+struct HairMaterialInstance : MaterialInstanceBase, IMaterialInstance
 {
     ShadingFrame sf;    ///< Shading frame in world space.
     HairChiang16Data data;
@@ -59,11 +59,17 @@ struct HairMaterialInstance : IMaterialInstance
 
         HairChiang16 bcsdf = HairChiang16(sd, data);
 
-        return bcsdf.eval(wiLocal, woLocal, sg);
+        return bcsdf.eval(wiLocal, woLocal, sg, BSDFContext());
 #else
         // Diffuse BRDF
         return data.baseColor * (float)M_1_PI * saturate(dot(sf.N, wo));
 #endif
+    }
+
+    [Differentiable]
+    float3 evalAD<S : ISampleGenerator>(const DiffMaterialData diffData, const ShadingData sd, const float3 wo, inout S sg)
+    {
+        return float3(0.f);
     }
 
     bool sample<S : ISampleGenerator>(const ShadingData sd, inout S sg, out BSDFSample result, bool useImportanceSampling = true)
@@ -74,7 +80,7 @@ struct HairMaterialInstance : IMaterialInstance
 
         HairChiang16 bcsdf = HairChiang16(sd, data);
 
-        bool valid = bcsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg);
+        bool valid = bcsdf.sample(wiLocal, woLocal, result.pdf, result.weight, result.lobeType, sg, BSDFContext());
         result.wo = sf.fromLocal(woLocal);
 
         return valid;
@@ -96,7 +102,7 @@ struct HairMaterialInstance : IMaterialInstance
 
         HairChiang16 bcsdf = HairChiang16(sd, data);
 
-        return bcsdf.evalPdf(wiLocal, woLocal);
+        return bcsdf.evalPdf(wiLocal, woLocal, BSDFContext());
 #else
         // Diffuse BRDF
         return saturate(dot(sf.N, wo));

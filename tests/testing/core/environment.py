@@ -6,6 +6,7 @@ import os
 import json
 import string
 from pathlib import Path
+import hashlib
 
 from . import config, helpers
 
@@ -57,6 +58,13 @@ class Environment:
         '''
         Loads the environment from the JSON file and sets up derived variables.
         '''
+
+        self.project_dir = Path(__file__).parents[3].resolve()
+        self.temp_dir = self.project_dir / "tests/temp"
+
+        if json_file == None:
+            json_file = self.project_dir / config.DEFAULT_ENVIRONMENT
+
         # Load JSON config.
         if not Path(json_file).exists():
             raise Exception(f'Environment config file "{json_file}" not found.')
@@ -90,17 +98,19 @@ class Environment:
 
         # Setup environment variables.
         self.name = env['name']
-        self.project_dir = Path(__file__).parents[3].resolve()
         self.build_dir = self.project_dir / config.BUILD_CONFIGS[build_config]['build_dir']
         self.cmake_exe = self.project_dir / config.CMAKE_EXE
         # Ideally this information would be parsed from CMakePresets.json, rather than this roundabout way
         self.cmake_dir = self.build_dir.parents[1].resolve()
         self.cmake_config = self.build_dir.parts[-1]
         self.image_tests_dir = self.project_dir / config.IMAGE_TESTS_DIR
-        self.image_tests_result_dir = env['image_tests']['result_dir']
-        self.image_tests_ref_dir = env['image_tests']['ref_dir']
-        self.image_tests_remote_ref_dir = env['image_tests'].get('remote_ref_dir', None)
+        self.image_tests_result_dir: str = env['image_tests']['result_dir']
+        self.image_tests_ref_dir: str = env['image_tests']['ref_dir']
+        self.image_tests_remote_ref_dir: str = env['image_tests'].get('remote_ref_dir', None)
         self.python_tests_dir = self.project_dir / config.PYTHON_TESTS_DIR
+
+        self.vcs_root = helpers.get_vcs_root(self.project_dir)
+        self.hostname = helpers.get_hostname()
 
         self.build_config = build_config
         self.branch = helpers.get_git_head_branch(self.project_dir)
@@ -117,14 +127,24 @@ class Environment:
         Substitues ${xxx} placeholders in directory name with values in environment.
         '''
         branch = branch.replace("/", "^").replace("\\", "^")
+        build_config = self.build_config
+
+        build_hash_str = f"{self.vcs_root}/{self.hostname}/{build_id}/{build_config}"
+        branch_hash_str = f"{self.vcs_root}/{self.hostname}/{branch}/{build_config}"
+        build_hash = hashlib.sha1(build_hash_str.encode()).hexdigest()[0:8]
+        branch_hash = hashlib.sha1(branch_hash_str.encode()).hexdigest()[0:8]
+
         template = string.Template(image_dir)
         variables = {
             'project_dir': self.project_dir,
-            'build_config': self.build_config,
-            'vcs_root': helpers.get_vcs_root(self.project_dir),
-            'hostname': helpers.get_hostname(),
+            'build_config': build_config,
+            'vcs_root': self.vcs_root,
+            'hostname': self.hostname,
             'build_id': build_id,
-            'branch': branch
+            'branch': branch,
+            'build_hash': build_hash,
+            'branch_hash': branch_hash,
+            'project_drive': self.project_dir.drive
         }
         return Path(template.substitute(variables)).resolve()
 

@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -27,7 +27,7 @@
  **************************************************************************/
 #include "Window.h"
 #include "Macros.h"
-#include "Assert.h"
+#include "Error.h"
 #include "ObjectPython.h"
 #include "GLFW.h"
 #include "Platform/OS.h"
@@ -386,7 +386,7 @@ Window::Window(const Desc& desc, ICallbacks* pCallbacks)
     if (sWindowCount.fetch_add(1) == 0)
     {
         if (glfwInit() == GLFW_FALSE)
-            throw RuntimeError("Failed to initialize GLFW.");
+            FALCOR_THROW("Failed to initialize GLFW.");
     }
 
     // Create the window
@@ -418,7 +418,7 @@ Window::Window(const Desc& desc, ICallbacks* pCallbacks)
     mpGLFWWindow = glfwCreateWindow(w, h, desc.title.c_str(), nullptr, nullptr);
     if (!mpGLFWWindow)
     {
-        throw RuntimeError("Failed to create GLFW window.");
+        FALCOR_THROW("Failed to create GLFW window.");
     }
 
     // Init handles
@@ -660,6 +660,7 @@ FALCOR_SCRIPT_BINDING(Window)
 {
     pybind11::class_<Window, ref<Window>> window(m, "Window");
     window.def("setWindowPos", &Window::setWindowPos);
+    window.def("set_window_pos", &Window::setWindowPos);
 
     pybind11::enum_<Window::WindowMode> windowMode(m, "WindowMode");
     windowMode.value("Normal", Window::WindowMode::Normal);

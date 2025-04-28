@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -46,7 +46,7 @@ struct PBRTCoatedConductorMaterial : MaterialBase, IMaterial
         // RG: Interface X&Y roughness
         // BA: Conductor X&Y roughness
         const float4 roughnesses = ms.sampleTexture(data.texSpecular, s, sd.uv, data.specular, lod).rgba;
-        float eta = 1.0f / header.getIoR();
+        float eta = header.getIoR();
 
         // Compute final shading frame.
         ShadingFrame sf = sd.frame;
@@ -66,9 +66,10 @@ struct PBRTCoatedConductorMaterial : MaterialBase, IMaterial
         return mi;
     }
 
-    float evalOpacity(const MaterialSystem ms, const VertexData v, const ITextureSampler lod)
+    [Differentiable]
+    PBRTCoatedConductorMaterialInstance setupDiffMaterialInstance(out DiffMaterialData diffData, const MaterialSystem ms, const ShadingData sd, const ITextureSampler lod, const uint hints)
     {
-        SamplerState s = ms.getTextureSampler(header.getDefaultTextureSamplerID());
-        return ms.sampleTexture(data.texBaseColor, s, v.texC, data.baseColor, lod).a;
+        diffData = DiffMaterialData();
+        return no_diff setupMaterialInstance(ms, sd, lod, hints);
     }
 };

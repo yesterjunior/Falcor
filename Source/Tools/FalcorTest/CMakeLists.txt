@@ -5,8 +5,10 @@ target_sources(FalcorTest PRIVATE
 
     Tests/Core/AftermathTests.cpp
     Tests/Core/AftermathTests.cs.slang
+    Tests/Core/AssetResolverTests.cpp
+    Tests/Core/BlitTests.cpp
+    Tests/Core/BlitTests.cs.slang
     Tests/Core/BufferAccessTests.cpp
-    Tests/Core/BufferAccessTests.cs.slang
     Tests/Core/BufferTests.cpp
     Tests/Core/BufferTests.cs.slang
     Tests/Core/ConstantBufferTests.cpp
@@ -31,11 +33,19 @@ target_sources(FalcorTest PRIVATE
     Tests/Core/RootBufferStructTests.cs.slang
     Tests/Core/RootBufferTests.cpp
     Tests/Core/RootBufferTests.cs.slang
+    Tests/Core/TextureArrays.cpp
+    Tests/Core/TextureArrays.cs.slang
     Tests/Core/TextureLoadTests.cs.slang
     Tests/Core/TextureTests.cpp
     Tests/Core/TextureTests.cs.slang
 
     Tests/DebugPasses/InvalidPixelDetectionTests.cpp
+
+    Tests/DiffRendering/SceneGradientsTest.cpp
+    Tests/DiffRendering/SceneGradientsTest.cs.slang
+
+    Tests/DiffRendering/Material/DiffMaterialTests.cpp
+    Tests/DiffRendering/Material/DiffMaterialTests.cs.slang
 
     Tests/Platform/LockFileTests.cpp
     Tests/Platform/MemoryMappedFileTests.cpp
@@ -66,6 +76,8 @@ target_sources(FalcorTest PRIVATE
     Tests/Scene/Material/HairChiang16Tests.cs.slang
     Tests/Scene/Material/MERLFileTests.cpp
 
+    Tests/Slang/Atomics.cpp
+    Tests/Slang/Atomics.cs.slang
     Tests/Slang/CastFloat16.cpp
     Tests/Slang/CastFloat16.cs.slang
     Tests/Slang/Float16Tests.cpp
@@ -91,6 +103,8 @@ target_sources(FalcorTest PRIVATE
     Tests/Slang/ShaderStringUtil.slang
     Tests/Slang/SlangExtension.cpp
     Tests/Slang/SlangExtension.cs.slang
+    Tests/Slang/SlangGenerics.cpp
+    Tests/Slang/SlangGenerics.cs.slang
     Tests/Slang/SlangInheritance.cpp
     Tests/Slang/SlangInheritance.cs.slang
     Tests/Slang/SlangMutatingTests.cpp
@@ -155,6 +169,8 @@ target_sources(FalcorTest PRIVATE
     Tests/Utils/QuaternionTests.cpp
     Tests/Utils/RectangleTests.cpp
     Tests/Utils/SettingsTests.cpp
+    Tests/Utils/SplitBufferTests.cpp
+    Tests/Utils/SplitBufferTests.cs.slang
     Tests/Utils/StringUtilsTests.cpp
     Tests/Utils/TextureAnalyzerTests.cpp
     Tests/Utils/UnionFindTests.cpp
